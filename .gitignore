@@ -27,6 +27,7 @@ wheels/
 # Data
 data
 docs/superpowers
+.worktrees/
 
 # IDE
 .vscode/
