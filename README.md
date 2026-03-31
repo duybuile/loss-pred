@@ -1,229 +1,235 @@
-# Torch Take-Home Exercise
+# Torch Assessment Agent
 
-## Overview
+A hybrid AI agent that helps insurance reviewers assess incoming records quickly and confidently. Given a new record, the agent predicts loss likelihood, retrieves similar historical cases, and synthesises a plain-English recommendation with explicit confidence and escalation signals.
 
-This exercise is designed to take **2–3 hours**. We are not looking for a perfect solution — we are looking for how you think, the decisions you make, and how you approach building something that could realistically go to production.
+## Architecture
 
-Use AI tools — Claude Code, Cursor, Copilot, whatever you prefer. We expect you to use them. A working solution produced with AI assistance in two hours is not impressive on its own. What we are looking for is the judgment you applied on top of it: what you changed, what you rejected, and why.
+The agent uses a **hybrid controller pattern** — deterministic code owns all routing, confidence computation, and escalation decisions; the LLM is invoked once, only for prose synthesis.
 
-Simple and clear beats complex and clever. If you are spending time gold-plating, stop.
+```
+POST /assess
+  → ControllerPolicy          (confidence bands, retrieval gating, conflict detection)
+      → predict_loss tool     (sklearn pipeline → trained classifier)
+      → retrieve_similar_records tool   (ChromaDB, only when confidence is low)
+  → LLMAdapter.synthesize()   (single pass, skipped on forced escalation)
+  → AssessResponse
+```
 
-## How we assess
-
-We grade judgment, not completeness. A submission where every part is finished but none of it shows a clear point of view is weaker than one where half the parts are done but the decisions are well-reasoned and owned.
-
-We are specifically looking for:
-- Whether you understood the problem before you started building
-- Whether your agent reasons or just calls everything unconditionally
-- Whether your output would actually be useful to a non-technical reviewer
-- Whether you can define what "correct" means for an AI system, not just implement it
-- Whether you know when to defer to a human
-
-Using an AI tool to fill in stubs without thinking is visible. Using it to move faster while you focus on the hard decisions is exactly what we want to see.
+See the [Notion architecture page](https://www.notion.so/334549ed3cfa8181866cc0ca380ec50a) for visual diagrams of the data flow, confidence computation, and evaluation harness.
 
 ---
 
-## Context
+## Requirements
 
-You are joining Torch as the first AI/ML engineer. One of the first things we want to build is a system that helps reviewers assess incoming records more quickly and confidently.
-
-When a new record comes in, a reviewer needs to answer two questions:
-
-1. Is this record likely to result in a loss — i.e. will costs exceed the revenue it generates?
-2. What do similar historical records tell us about this one?
-
-Your task is to build a prototype system that helps answer both questions — not as two separate queries, but as an agent that reasons over the record and produces a single, useful recommendation.
-
-**A note on the target variable:** `is_loss_making` is `True` when the actual losses on a record exceeded the premium charged (i.e. `loss_ratio > 1.0`). Your model should predict this outcome before we know the result.
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (package manager)
+- An Anthropic or OpenAI API key
+- Docker + Docker Compose (for containerised deployment)
 
 ---
 
-## The Task
+## Quick Start
 
-### Part 1 — Loss Prediction (in the notebook)
-
-Open `notebooks/modelling.ipynb`. Using `records.csv`, build a model that predicts whether a new record is likely to result in a loss. Save your trained model artifact to `app/artifacts/` so the app can load it.
-
-**We care about:**
-- How you explore and understand the data before modelling
-- Why you chose the model you did
-- How you would think about explainability — a reviewer needs to understand why a record is flagged
-- What the limitations of your model are
-
-### Part 2 — Assessment Agent (in the app)
-
-Implement the agent logic in `app/tools.py` and `app/model.py`. The retrieval tool (`retrieve_similar_records`) is already wired up — focus on the model prediction tool and the agent's reasoning.
-
-The agent has two tools available: the loss prediction model and the document retrieval system. It should reason over the record and decide how to use them — not call everything blindly.
-
-The agent should produce a recommendation for the reviewer that draws on both tools where appropriate. It should know when it has enough information to make a recommendation, and when it does not.
-
-**We care about:**
-- How the agent decides what to do — is it reasoning or just calling everything unconditionally?
-- What guardrails you put in place — termination conditions, fallbacks
-- How it handles uncertainty — low model confidence, poor retrieval results
-- Whether the output is genuinely useful to a non-technical reviewer
-- Cost awareness — each LLM call has a cost. We expect the first AI/ML hire to own the AI budget. Where are the cost risks in your agent design, and what did you do about them?
-
-### Part 2b — Agent Evaluation (in evals/)
-
-Implement `score_recommendation()` in `evals/eval.py` and run the harness against `evals/eval_set.json` — 20 records with known outcomes.
-
-**We care about:**
-- How you define "correct" for a free-text recommendation — this is not obvious
-- Whether your eval catches failure modes the agent might hide behind confident-sounding language
-- How you would use this eval to improve the agent over time
-
-### Part 3 — Response Contract (in the app)
-
-The agent loop is already wired to the `/assess` endpoint. Your job is to design `AssessResponse` in `app/schemas.py`.
-
-What fields does a non-technical reviewer actually need to see? What would make this response useful — or useless — in practice? Justify your design in `APPROACH.md`.
-
-**We care about:**
-- Whether the response communicates uncertainty in a way a reviewer can act on
-- Whether it tells the reviewer when to seek a second opinion
-- Whether it would be useful to an auditor six months later
-
----
-
-## Setup
-
-### 1. Install dependencies
+### Local development
 
 ```bash
+# 1. Install dependencies
 uv sync
-```
 
-### 2. Add your API key
-
-Copy `.env.example` to `.env` and add your key:
-
-```bash
+# 2. Configure environment
 cp .env.example .env
+# Edit .env and set ANTHROPIC_API_KEY (or OPENAI_API_KEY)
+
+# 3. Start the API
+make run
+# or: uv run uvicorn app.main:app --reload
 ```
 
-Then open `.env` and replace `your-api-key-here` with the key provided separately.
+The API is available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
 
-### 3. Verify the data is present
+### Docker
 
+```bash
+# Build and start
+make docker-up
+
+# Tail logs
+make docker-logs
+
+# Stop
+make docker-down
 ```
-data/
-├── records.csv       # Historical records with loss outcomes (note: contains data quality issues to handle)
-├── documents/        # Plain-English summaries, one per record
-└── new_record.json   # The record to assess
-```
+
+> **Note:** `data/` and `app/artifacts/` are bind-mounted from the host (see [Configuration](#configuration)). Both directories must exist locally before starting the container.
 
 ---
 
-## Running the app
+## Configuration
+
+### Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes (or OpenAI) | API key for the LLM provider |
+| `OPENAI_API_KEY` | Yes (or Anthropic) | Alternative LLM provider |
+
+Copy `.env.example` to `.env` and fill in the key.
+
+### Agent config (`conf/agent.toml`)
+
+| Key | Default | Description |
+|---|---|---|
+| `llm.provider` | `anthropic` | LLM provider: `anthropic` or `openai` |
+| `llm.model` | `claude-sonnet-4-6` | Model name |
+| `llm.max_tokens` | `2048` | Max tokens for synthesis response |
+| `controller.high_confidence_threshold` | `0.30` | Margin from 0.5 to reach high confidence |
+| `controller.medium_confidence_threshold` | `0.15` | Margin from 0.5 to reach medium confidence |
+| `controller.retrieval_n_results` | `3` | Number of similar records to retrieve |
+
+### General config (`conf/general.toml`)
+
+| Key | Default | Description |
+|---|---|---|
+| `artifacts.model_path` | `app/artifacts/model.pkl` | Trained classifier artifact |
+| `artifacts.pipeline_path` | `app/artifacts/feature_pipeline.pkl` | Feature pipeline artifact |
+| `data.records_path` | `data/records.csv` | Historical records for conflict detection |
+| `controller.retrieval_distance_threshold` | `0.5` | Cosine distance above which retrieval is treated as poor quality |
+
+---
+
+## API Reference
+
+### `GET /health`
+
+Liveness check.
 
 ```bash
-uv run uvicorn app.main:app --reload
+curl http://localhost:8000/health
+# {"status": "ok"}
 ```
 
-The API will be available at `http://localhost:8000`.
+### `POST /assess`
 
-- `GET  /health` — liveness check
-- `POST /assess` — run the assessment agent on a new record
+Run the assessment agent on a new record.
 
-Interactive docs: `http://localhost:8000/docs`
+**Request:**
+```json
+{
+  "record": {
+    "record_id": "NEW_0001",
+    "risk_type": "cyber",
+    "territory": "EU",
+    "industry": "transport",
+    "limit": 3438000,
+    "premium": 26904,
+    "broker": "Meridian Re",
+    "prior_claims": 1,
+    "years_trading": 4
+  }
+}
+```
 
-To test the assess endpoint with the provided example record:
+**Response (`AssessResponse`):**
+```json
+{
+  "record_id": "NEW_0001",
+  "recommendation": "...",
+  "risk_assessment": "likely_loss",
+  "confidence_level": "high",
+  "key_factors": ["prior_claims", "premium_to_limit"],
+  "summary": "...",
+  "similar_records_summary": null,
+  "second_opinion_recommended": false,
+  "review_guidance": "...",
+  "tools_used": ["predict_loss"],
+  "warnings": []
+}
+```
 
+**Quick test with the provided example record:**
 ```bash
-curl -X POST http://localhost:8000/assess \
+make assess
+# or manually:
+curl -s -X POST http://localhost:8000/assess \
   -H 'Content-Type: application/json' \
-  -d "{\"record\": $(cat data/new_record.json)}"
+  -d "{\"record\": $(cat data/new_record.json)}" | python -m json.tool
 ```
 
 ---
 
-## Running the notebook
+## Running Tests
 
 ```bash
-uv run jupyter notebook notebooks/modelling.ipynb
+make test
+# or: uv run pytest tests/ --ignore=tests/test_assessment_agent_architecture_diagram.py -v
 ```
 
-Or open it directly in VS Code / Cursor.
+The suite covers feature engineering, model prediction, controller policy, LLM adapter, agent orchestration, schemas, and eval scoring — 51 tests total.
 
 ---
 
-## Project structure
+## Running the Evaluation Harness
+
+```bash
+make eval
+# or: uv run python evals/eval.py
+```
+
+Runs the agent against `evals/eval_set.json` (20 records with known outcomes) and scores each recommendation across five dimensions using an LLM judge. Prints a summary and writes full results to `evals/eval_results.json`.
+
+---
+
+## Project Structure
 
 ```
-├── data/
+├── app/
+│   ├── feature_engineering/   # Sklearn transformer classes (StringCleaner, FeatureEngineer, etc.)
+│   ├── artifacts/             # model.pkl + feature_pipeline.pkl (not in git)
+│   ├── agent.py               # Hybrid orchestrator — controller → tools → LLM synthesis
+│   ├── controller.py          # ControllerPolicy — confidence, gating, escalation (deterministic)
+│   ├── llm.py                 # Provider-aware LLM adapter (Anthropic / OpenAI)
+│   ├── main.py                # FastAPI application — HTTP layer only
+│   ├── model.py               # Inference: load artifacts, run pipeline → classifier
+│   ├── schemas.py             # AssessRequest, AssessResponse (Pydantic v2)
+│   ├── tools.py               # run_predict_loss(), run_retrieve_similar_records()
+│   └── vectorstore.py         # ChromaDB wrapper — cosine similarity retrieval
+│
+├── conf/
+│   ├── agent.toml             # LLM + agent + controller thresholds
+│   └── general.toml           # Artifact paths, data paths, vectorstore settings
+│
+├── data/                      # Not in git — mount from host or supply separately
 │   ├── records.csv            # Historical records with loss outcomes
 │   ├── documents/             # Plain-English summaries, one per record
-│   └── new_record.json        # New record to run through your system
-│
-├── notebooks/
-│   └── modelling.ipynb        # Start here for Part 1
-│
-├── app/
-│   ├── main.py                # HTTP layer — endpoints only
-│   ├── schemas.py             # Request/response contracts — design AssessResponse here (Part 3)
-│   ├── agent.py               # Agent loop — pre-wired, set MAX_ITERATIONS and SYSTEM_PROMPT
-│   ├── llm.py                 # Anthropic client — pre-configured, ready to use
-│   ├── vectorstore.py         # ChromaDB retrieval — pre-built, call retrieve()
-│   ├── tools.py               # Tool schemas — retrieval pre-built, implement predict (Part 2)
-│   ├── model.py               # Model loader — implement predict() (Part 2)
-│   └── artifacts/             # Save your model.pkl here after Part 1
+│   └── new_record.json        # Example record to assess
 │
 ├── evals/
-│   ├── eval_set.json          # 20 labeled records with ground truth
-│   └── eval.py                # Eval harness skeleton — implement score_recommendation() (Part 2b)
+│   ├── eval_set.json          # 20 labelled records with ground truth
+│   └── eval.py                # LLM-as-judge harness; run with `make eval`
 │
+├── notebooks/
+│   └── modelling.ipynb        # EDA + model training (Part 1)
+│
+├── scripts/
+│   └── reserialize_pipeline.py  # Re-serialize feature_pipeline.pkl after retraining
+│
+├── tests/                     # pytest suite — 51 tests
+│
+├── Dockerfile
+├── docker-compose.yml
+├── Makefile
 ├── pyproject.toml
-└── README.md
+└── Instruction.md             # Original take-home exercise brief
 ```
 
 ---
 
-## Data dictionary
+## Re-serializing the Pipeline
 
-### records.csv
+If you retrain the model in the notebook, re-run the serialization script to ensure the pickle references the correct module path:
 
-| Field | Type | Description |
-|---|---|---|
-| `record_id` | string | Unique identifier, links to document filename in `data/documents/` |
-| `risk_type` | categorical | Category of the record (property, liability, marine, cyber, aviation) |
-| `territory` | categorical | Geographic territory |
-| `industry` | categorical | Industry sector of the insured |
-| `limit` | float | Maximum exposure in USD |
-| `premium` | float | Revenue generated from this record in USD |
-| `broker` | categorical | Originating broker |
-| `prior_claims` | integer | Number of prior claims on this record |
-| `years_trading` | integer | Years the counterparty has been trading |
-| `loss_ratio` | float | Actual outcome — losses divided by premium |
-| `is_loss_making` | boolean | True if `loss_ratio > 1.0` |
+```bash
+uv run python scripts/reserialize_pipeline.py
+```
 
-### new_record.json
-
-A single record in the same structure as above, without `loss_ratio` or `is_loss_making`.
-
----
-
-## What to submit
-
-A GitHub repo (public or private — if private, please invite us) containing:
-
-- Your completed notebook (`notebooks/modelling.ipynb`)
-- Your completed app logic (`app/tools.py`, `app/model.py`, `app/main.py`)
-- Your completed eval harness (`evals/eval.py`) with results
-- Your saved model artifact (`app/artifacts/model.pkl`)
-- A short `APPROACH.md` (one page maximum) covering:
-  - The decisions you made and why — not a list of what you built, but why you made the specific choices you did
-  - What you would do differently with more time
-  - Where your AI tool made a suggestion you changed, rejected, or overrode — and why. What did you decide that it could not decide for you?
-  - How would you know if the model was degrading in production? What signals would tell you the training data is no longer representative of what you are seeing?
-  - How would you design a feedback loop so that reviewer decisions flow back into the model — not just as labels, but as a way to catch where the system is systematically wrong?
-  - What would you need in place before putting this into production — covering cost, latency, monitoring, and the conditions under which the system should stop making recommendations and defer to a human
-
----
-
-## What we are not looking for
-
-- A perfect model or state-of-the-art retrieval
-- Changes to the plumbing we have provided — focus on the logic
-- A large codebase — simple and clear beats complex and clever
+This remaps the `__main__` module path from notebook cells to `app.feature_engineering.transformers`.

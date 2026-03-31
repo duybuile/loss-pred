@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: torch-assessment-api:latest
+    container_name: torch-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Historical records — read-only, bind-mounted from host
+      - ./data:/app/data:ro
+      # Model and pipeline artifacts — read-only, bind-mounted from host
+      - ./app/artifacts:/app/app/artifacts:ro
+      # ChromaDB vector store — persisted across restarts in a named volume
+      - chroma_data:/app/.chroma
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  chroma_data:
+    driver: local
