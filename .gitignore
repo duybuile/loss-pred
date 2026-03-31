@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+venv
 
 # Environment / secrets
 .env
@@ -26,9 +27,12 @@ wheels/
 
 # Data
 data
-docs/superpowers
+docs/superpowers/
 .worktrees/
 
 # IDE
 .vscode/
 .idea/
+
+# Logs
+*.log
