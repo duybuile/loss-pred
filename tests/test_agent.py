@@ -36,8 +36,8 @@ def test_run_agent_returns_required_keys(monkeypatch):
     result = agent_module.run_agent(VALID_RECORD)
 
     for key in ["recommendation", "risk_assessment", "confidence_level",
-                "key_factors", "summary", "second_opinion_recommended",
-                "review_guidance", "tools_used", "warnings"]:
+                "key_factors", "summary", "similar_records_summary",
+                "second_opinion_recommended", "review_guidance", "tools_used", "warnings"]:
         assert key in result, f"Missing key: {key}"
 
 
@@ -53,12 +53,12 @@ def test_run_agent_escalation_skips_llm(monkeypatch):
             return SYNTHESIS_RESPONSE
 
     monkeypatch.setattr(agent_module, "_adapter", TrackingAdapter())
+    monkeypatch.setattr(agent_module._controller, "compute_confidence", lambda pred: "low")
+    monkeypatch.setattr(agent_module._controller, "should_escalate", lambda **kw: True)
 
-    # Force escalation by providing a near-boundary record with missing fields
     sparse_record = {"record_id": "X", "risk_type": "cyber", "territory": "EU"}
     result = agent_module.run_agent(sparse_record)
 
-    # With required fields missing → confidence forced low → escalation → no LLM
     assert call_count["n"] == 0
     assert result["second_opinion_recommended"] is True
 
@@ -70,6 +70,20 @@ def test_run_agent_tools_used_populated(monkeypatch):
     result = agent_module.run_agent(VALID_RECORD)
 
     assert "predict_loss" in result["tools_used"]
+
+
+def test_retrieve_similar_records_not_in_tools_used_when_high_confidence(monkeypatch):
+    """Retrieval tool should not appear in tools_used when confidence is high."""
+    from app import agent as agent_module
+
+    monkeypatch.setattr(agent_module, "_adapter", _make_fake_adapter(SYNTHESIS_RESPONSE))
+    # Force high confidence so retrieval is skipped
+    monkeypatch.setattr(agent_module._controller, "compute_confidence", lambda pred: "high")
+    monkeypatch.setattr(agent_module._controller, "should_escalate", lambda **kw: False)
+
+    result = agent_module.run_agent(VALID_RECORD)
+
+    assert "retrieve_similar_records" not in result["tools_used"]
 
 
 def _make_fake_adapter(synthesis_response: dict):
