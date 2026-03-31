@@ -89,28 +89,19 @@ def run_predict_loss(record: dict) -> dict:
     """
     Run the ML model on the given record and return a structured prediction.
 
-    TODO — implement this function.
-
-    Steps:
-        1. Call app.model.load_model() to load the trained artifact.
-        2. Call app.model.predict(model, record) and return its output.
-        3. Handle the case where the model artifact does not exist yet
-           (load_model raises FileNotFoundError).
-
-    Expected return format:
-        {
-            "is_loss_making_prediction": bool,
-            "confidence": float,          # probability of loss-making, 0–1
-            "top_features": list[str],    # most influential feature names
-        }
-
-    The agent will use `confidence` to decide how much weight to place on the
-    model's output — low confidence should influence the recommendation.
+    Returns an error dict (with "error" key) rather than raising if the model
+    artifact is missing or inference fails — so the agent loop can reason about
+    the failure rather than crash.
     """
-    raise NotImplementedError(
-        "Implement run_predict_loss() in app/tools.py. "
-        "See the docstring above for implementation guidance."
-    )
+    try:
+        from app.model import load_model, load_pipeline, predict
+        pipeline = load_pipeline()
+        artifact = load_model()
+        return predict(pipeline, artifact, record)
+    except FileNotFoundError as e:
+        return {"error": f"Model artifact not found: {e}", "model_warnings": [str(e)]}
+    except Exception as e:
+        return {"error": f"Prediction failed: {e}", "model_warnings": [str(e)]}
 
 
 def run_retrieve_similar_records(query: str, n_results: int = 3) -> list[dict]:
