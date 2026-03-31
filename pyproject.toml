@@ -22,3 +22,11 @@ dependencies = [
     "openai>=2.30.0",
     "pycaret>=2.2.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

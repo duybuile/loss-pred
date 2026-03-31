@@ -17,11 +17,13 @@ def test_transformer_classes_importable():
         OOFGroupEncoder,
         StringCleaner,
     )
-    assert StringCleaner is not None
+    classes = [StringCleaner, NumericCoercer, MissingFlagger, NumericImputer,
+               FeatureEngineer, OOFGroupEncoder, CategoricalEncoder, LeakageDropper]
+    assert all(cls is not None for cls in classes)
 
 
 def test_feature_pipeline_unpicklable():
-    path = Path("app/artifacts/feature_pipeline.pkl")
+    path = Path(__file__).parent.parent / "app/artifacts/feature_pipeline.pkl"
     assert path.exists(), "feature_pipeline.pkl must exist"
     with path.open("rb") as f:
         pipeline = pickle.load(f)
