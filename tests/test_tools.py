@@ -26,13 +26,12 @@ def test_dispatch_predict_loss_returns_expected_keys():
 
 def test_dispatch_predict_loss_graceful_on_bad_record(monkeypatch):
     """If predict raises unexpectedly, dispatch_tool returns an error dict, not an exception."""
-    from app import model as model_module
     from app.tools import dispatch_tool
 
     def broken_predict(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(model_module, "predict", broken_predict)
+    monkeypatch.setattr("app.tools.predict", broken_predict)
 
     result = dispatch_tool("predict_loss", {"record": VALID_RECORD})
     assert "error" in result

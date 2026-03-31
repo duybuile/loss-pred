@@ -14,6 +14,8 @@ run_predict_loss is a stub for you to implement as part of Part 2.
 
 from __future__ import annotations
 
+from app.model import load_model, load_pipeline, predict
+
 # ── Tool schemas (Anthropic tool_use format) ─────────────────────────────────
 
 TOOLS: list[dict] = [
@@ -94,7 +96,6 @@ def run_predict_loss(record: dict) -> dict:
     the failure rather than crash.
     """
     try:
-        from app.model import load_model, load_pipeline, predict
         pipeline = load_pipeline()
         artifact = load_model()
         return predict(pipeline, artifact, record)
