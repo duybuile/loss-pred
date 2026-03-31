@@ -1,0 +1,13 @@
+[llm]
+provider = "anthropic"   # "anthropic" | "openai"
+model = "claude-sonnet-4-6"
+max_tokens = 2048
+
+[agent]
+max_iterations = 3
+
+[controller]
+high_confidence_threshold = 0.30
+medium_confidence_threshold = 0.15
+retrieval_n_results = 3
+retrieval_distance_threshold = 0.5

@@ -1,0 +1,14 @@
+[artifacts]
+model_path = "app/artifacts/model.pkl"
+pipeline_path = "app/artifacts/feature_pipeline.pkl"
+
+[data]
+records_path = "data/records.csv"
+documents_path = "data/documents"
+
+[vectorstore]
+collection_name = "torch_records"
+persist_directory = ".chroma"
+
+[controller]
+retrieval_distance_threshold = 0.5
