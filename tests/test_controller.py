@@ -152,30 +152,18 @@ class TestRiskAssessment:
 
 
 class TestEscalation:
-    def test_escalation_on_low_confidence_no_retrieval(self):
+    def test_escalation_on_low_confidence(self):
         ctrl = make_controller()
-        assert ctrl.should_escalate(
-            confidence_level="low",
-            conflict_detected=False,
-        ) is True
+        assert ctrl.should_escalate(confidence_level="low", conflict_detected=False) is True
 
     def test_no_escalation_on_high_confidence(self):
         ctrl = make_controller()
-        assert ctrl.should_escalate(
-            confidence_level="high",
-            conflict_detected=False,
-        ) is False
+        assert ctrl.should_escalate(confidence_level="high", conflict_detected=False) is False
+
+    def test_no_escalation_on_medium_confidence(self):
+        ctrl = make_controller()
+        assert ctrl.should_escalate(confidence_level="medium", conflict_detected=False) is False
 
     def test_escalation_on_conflict(self):
         ctrl = make_controller()
-        assert ctrl.should_escalate(
-            confidence_level="medium",
-            conflict_detected=True,
-        ) is True
-
-    def test_escalation_on_low_confidence_after_retrieval(self):
-        ctrl = make_controller()
-        assert ctrl.should_escalate(
-            confidence_level="low",
-            conflict_detected=False,
-        ) is True
+        assert ctrl.should_escalate(confidence_level="medium", conflict_detected=True) is True
