@@ -165,6 +165,10 @@ def run_agent(record: dict) -> dict[str, Any]:
         warnings.append("Model prediction conflicts with majority of similar historical records.")
 
     # Step 5: Build response
+    # Bypass the LLM only when escalation is forced AND confidence is low AND retrieval
+    # produced no results. When retrieval did run (even on a low-confidence record), the
+    # LLM synthesises the retrieved evidence into a useful narrative — skipping it would
+    # discard valuable context the reviewer needs.
     if second_opinion_recommended and confidence_level == "low" and not retrieval_results:
         # Fully deterministic response — no LLM
         synthesis = _build_deterministic_response(prediction, confidence_level, warnings)
