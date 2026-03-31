@@ -47,9 +47,16 @@ def assess(request: AssessRequest) -> AssessResponse:
     except EnvironmentError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # TODO: unpack `result` into your AssessResponse fields
     return AssessResponse(
         record_id=request.record.get("record_id", "unknown"),
         recommendation=result["recommendation"],
+        risk_assessment=result["risk_assessment"],
+        confidence_level=result["confidence_level"],
+        key_factors=result["key_factors"],
+        summary=result["summary"],
+        similar_records_summary=result.get("similar_records_summary"),
+        second_opinion_recommended=result["second_opinion_recommended"],
+        review_guidance=result["review_guidance"],
         tools_used=result.get("tools_used", []),
+        warnings=result.get("warnings", []),
     )
