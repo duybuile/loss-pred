@@ -1,118 +1,231 @@
+# app/agent.py
 """
-Assessment agent — pre-wired loop that drives the LLM through tool calls.
+Assessment agent — hybrid controller orchestrator.
 
-The mechanics here are provided. The things left for you to decide:
-
-    MAX_ITERATIONS  — how many tool-call rounds should the agent be allowed?
-                      Think about cost, latency, and what happens if you set
-                      this too high or too low.
-
-    SYSTEM_PROMPT   — instructs the agent on its role, its tools, and what a
-                      good recommendation looks like. The quality of this prompt
-                      directly affects the quality of the output.
+The controller owns tool routing and policy decisions.
+The LLM is called once for prose synthesis when evidence is coherent.
 """
-
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
-import anthropic
+import pandas as pd
 
-from app.llm import MODEL, get_client
-from app.tools import TOOLS, dispatch_tool
+from app.controller import ControllerPolicy
+from app.llm import LLMAdapter
+from app.tools import run_predict_loss, run_retrieve_similar_records
 
-# TODO — set a sensible limit. Consider: what are the cost and latency implications
-# of setting this too high? What failure mode does it guard against?
-# Justify your choice in APPROACH.md — there is no single right answer, but there
-# is a right way to reason about it.
-MAX_ITERATIONS: int = ...  # type: ignore[assignment]
+# ── Config ────────────────────────────────────────────────────────────────────
 
-# TODO — write the system prompt. The agent needs to know:
-#   - what it is and who it's helping
-#   - what each tool does and when to use it (vs when not to)
-#   - what a useful recommendation looks like to a non-technical reviewer
-#   - how to handle uncertainty (low confidence, poor retrieval, ambiguous record)
-# Justify the key choices in your prompt in APPROACH.md. What did you instruct the
-# agent to do that it would not have done by default? What did you explicitly rule out?
-SYSTEM_PROMPT: str = ...  # type: ignore[assignment]
+def _load_config() -> dict:
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
+    repo_root = Path(__file__).parent.parent
+    with open(repo_root / "conf" / "agent.toml", "rb") as f:
+        return tomllib.load(f)
+
+_cfg = _load_config()
+
+MAX_ITERATIONS: int = _cfg["agent"]["max_iterations"]
+
+# ── Module-level singletons ───────────────────────────────────────────────────
+
+def _load_record_outcomes() -> dict[str, bool]:
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    repo_root = Path(__file__).parent.parent
+    with open(repo_root / "conf" / "general.toml", "rb") as f:
+        general_cfg = tomllib.load(f)
+
+    records_path = repo_root / general_cfg["data"]["records_path"]
+    df = pd.read_csv(records_path)
+    return dict(zip(df["record_id"], df["is_loss_making"].astype(bool)))
+
+
+_controller = ControllerPolicy(
+    config=_cfg["controller"],
+    record_outcomes=_load_record_outcomes(),
+)
+
+def _make_adapter() -> LLMAdapter:
+    try:
+        return LLMAdapter(
+            provider=_cfg["llm"]["provider"],
+            model=_cfg["llm"]["model"],
+            max_tokens=_cfg["llm"]["max_tokens"],
+        )
+    except Exception:
+        return None  # type: ignore[return-value]
+
+_adapter: LLMAdapter | None = _make_adapter()
+
+# ── System prompt for synthesis ───────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are an assessment assistant helping a non-technical insurance reviewer.
+
+You will receive structured evidence about a record: a model prediction, confidence level,
+risk assessment, top predictive features, and optionally retrieved similar records.
+
+Your job is to synthesize this evidence into a concise, plain-English recommendation.
+
+Return ONLY a JSON object with these exact keys:
+- "recommendation": 2-4 sentence plain-English recommendation for the reviewer
+- "summary": 2-3 sentences explaining the key evidence
+- "key_factors": list of 3-5 plain-English descriptions of the main risk drivers
+- "similar_records_summary": brief narrative about retrieved historical records, or null if none
+- "review_guidance": one sentence telling the reviewer what to do next
+
+Rules:
+- Use plain English — no jargon, no technical terms like "probability" or "coefficients"
+- If confidence is low or a second opinion is recommended, say so explicitly
+- Do not invent evidence not present in the structured input
+- Do not expose your reasoning process — only the final recommendation
+"""
+
+# ── Orchestrator ──────────────────────────────────────────────────────────────
 
 def run_agent(record: dict) -> dict[str, Any]:
     """
     Run the assessment agent on a single record.
 
-    Drives the LLM through tool calls until it produces a final answer or
-    MAX_ITERATIONS is reached.
+    1. Call predict_loss (always first)
+    2. Compute confidence via controller
+    3. Conditionally call retrieve_similar_records
+    4. Detect conflicts and determine escalation
+    5. Either build deterministic response (escalation) or call LLM synthesis
 
-    Args:
-        record: The record dict to assess (fields from new_record.json).
-
-    Returns:
-        A dict containing at minimum a "recommendation" key with the agent's
-        final text. Add any other fields your AssessResponse requires.
+    Returns a dict matching AssessResponse fields.
     """
-    client = get_client()
-    messages: list[Any] = [
-        {
-            "role": "user",
-            "content": f"Please assess this record:\n\n{json.dumps(record, indent=2)}",
-        }
-    ]
-
-    response: anthropic.types.Message | None = None
     tools_used: list[str] = []
+    warnings: list[str] = []
 
-    for _ in range(MAX_ITERATIONS):
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,  # type: ignore[arg-type]
-            messages=messages,
+    # Step 1: Predict
+    prediction = run_predict_loss(record)
+    tools_used.append("predict_loss")
+    predict_failed = "error" in prediction
+
+    if predict_failed:
+        warnings.append(f"Prediction failed: {prediction.get('error', 'unknown error')}")
+        # Provide a minimal stub so downstream logic has something to work with
+        prediction = {
+            "is_loss_making_prediction": False,
+            "probability_of_loss": 0.5,
+            "top_features": [],
+            "input_quality_flags": [],
+            "model_warnings": [prediction.get("error", "")],
+        }
+
+    # Step 2: Confidence
+    confidence_level = _controller.compute_confidence(prediction)
+
+    # Propagate input quality flags as warnings
+    for flag in prediction.get("input_quality_flags", []):
+        warnings.append(flag)
+
+    # Step 3: Retrieval (only when warranted)
+    retrieval_results: list[dict] = []
+    if _controller.should_retrieve(confidence_level=confidence_level, predict_failed=predict_failed):
+        query = _build_retrieval_query(record)
+        try:
+            retrieval_results = run_retrieve_similar_records(
+                query, n_results=_cfg["controller"]["retrieval_n_results"]
+            )
+            tools_used.append("retrieve_similar_records")
+        except Exception as e:
+            warnings.append(f"Retrieval failed: {e}")
+
+    # Step 4: Conflict detection and escalation
+    conflict_detected = False
+    if retrieval_results:
+        conflict_detected = _controller.detect_conflict(
+            is_loss_making_prediction=prediction["is_loss_making_prediction"],
+            retrieval_results=retrieval_results,
         )
 
-        messages.append({"role": "assistant", "content": response.content})
-
-        if response.stop_reason == "end_turn":
-            break
-
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if isinstance(block, anthropic.types.ToolUseBlock):
-                    if block.name not in tools_used:
-                        tools_used.append(block.name)
-                    try:
-                        result = dispatch_tool(block.name, block.input)
-                    except NotImplementedError as e:
-                        result = {"error": str(e)}
-                    except Exception as e:
-                        result = {"error": f"Tool failed: {e}"}
-
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result),
-                        }
-                    )
-            messages.append({"role": "user", "content": tool_results})
-
-    if response is None:
-        raise RuntimeError("Agent produced no response.")
-
-    final_text = next(
-        (
-            block.text
-            for block in response.content
-            if isinstance(block, anthropic.types.TextBlock)
-        ),
-        "No recommendation produced.",
+    second_opinion_recommended = _controller.should_escalate(
+        confidence_level=confidence_level,
+        conflict_detected=conflict_detected,
     )
 
-    # tools_used is provided as a starting point. Add any other fields to this dict
-    # that you think are worth capturing — what the agent did, how confident it was,
-    # whether it hit any uncertainty conditions. What you choose to surface here is
-    # itself a design decision.
-    return {"recommendation": final_text, "tools_used": tools_used}
+    risk_assessment = _controller.compute_risk_assessment(
+        is_loss_making=prediction["is_loss_making_prediction"],
+        confidence_level=confidence_level,
+    )
+
+    if conflict_detected:
+        warnings.append("Model prediction conflicts with majority of similar historical records.")
+
+    # Step 5: Build response
+    if second_opinion_recommended and confidence_level == "low" and not retrieval_results:
+        # Fully deterministic response — no LLM
+        synthesis = _build_deterministic_response(prediction, confidence_level, warnings)
+    else:
+        # LLM synthesis pass
+        evidence = {
+            "record": {k: v for k, v in record.items() if k != "record_id"},
+            "prediction": {
+                "is_loss_making": prediction["is_loss_making_prediction"],
+                "probability_of_loss": prediction["probability_of_loss"],
+                "top_features": prediction["top_features"],
+            },
+            "confidence_level": confidence_level,
+            "risk_assessment": risk_assessment,
+            "second_opinion_recommended": second_opinion_recommended,
+            "retrieved_records": retrieval_results or None,
+            "warnings": warnings,
+        }
+        synthesis = _adapter.synthesize(evidence=evidence, system_prompt=SYSTEM_PROMPT)
+
+    return {
+        "recommendation": synthesis.get("recommendation", "No recommendation produced."),
+        "risk_assessment": risk_assessment,
+        "confidence_level": confidence_level,
+        "key_factors": synthesis.get("key_factors", prediction.get("top_features", [])),
+        "summary": synthesis.get("summary", ""),
+        "similar_records_summary": synthesis.get("similar_records_summary"),
+        "second_opinion_recommended": second_opinion_recommended,
+        "review_guidance": synthesis.get("review_guidance", ""),
+        "tools_used": tools_used,
+        "warnings": warnings,
+    }
+
+
+def _build_retrieval_query(record: dict) -> str:
+    """Construct a natural-language query for the vector store from record fields."""
+    parts = []
+    if record.get("risk_type"):
+        parts.append(record["risk_type"])
+    if record.get("industry"):
+        parts.append(f"{record['industry']} company")
+    if record.get("territory"):
+        parts.append(f"in {record['territory']}")
+    if record.get("prior_claims"):
+        parts.append(f"with {record['prior_claims']} prior claim(s)")
+    if record.get("limit"):
+        parts.append(f"limit {record['limit']:,.0f}")
+    return " ".join(parts) if parts else "insurance record"
+
+
+def _build_deterministic_response(prediction: dict, confidence_level: str, warnings: list[str]) -> dict:
+    """Build a safe fallback response without calling the LLM."""
+    return {
+        "recommendation": (
+            "Insufficient information to produce a confident recommendation. "
+            "Manual review is required."
+        ),
+        "summary": (
+            f"Model confidence is {confidence_level}. "
+            + (f"Issues: {'; '.join(warnings[:3])}." if warnings else "")
+        ),
+        "key_factors": prediction.get("top_features", []),
+        "similar_records_summary": None,
+        "review_guidance": "Refer to a senior underwriter for manual assessment.",
+    }
