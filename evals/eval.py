@@ -1,92 +1,101 @@
+# evals/eval.py
 """
 Evaluation harness for the assessment agent.
 
-Runs the agent against evals/eval_set.json — 20 records with known outcomes —
-and reports how well the agent's recommendations align with ground truth.
-
 Usage:
     uv run python evals/eval.py
-
-Part 2b: implement score_recommendation() to define what a correct recommendation
-looks like, then run this to see how your agent performs across the eval set.
 """
-
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 from pathlib import Path
 
-# ── Load eval set ─────────────────────────────────────────────────────────────
+import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
 
 EVAL_SET_PATH = Path(__file__).parent / "eval_set.json"
+
+_JUDGE_SYSTEM_PROMPT = """You are evaluating an AI assessment agent that reviews insurance records.
+
+You will receive:
+1. A free-text recommendation produced by the agent
+2. The ground truth: is_loss_making (bool), loss_ratio (float), case_type ("clear" or "borderline")
+
+Score the recommendation on these dimensions:
+- outcome_aligned: Does the recommendation point toward the correct outcome?
+- calibration_ok: Is the expressed certainty proportionate to how clear-cut the case was?
+  A confident wrong answer OR a confident answer on a borderline case (loss_ratio near 1.0) fails calibration.
+  A borderline case (case_type="borderline") that hedges or recommends review passes calibration.
+- actionable: Would a non-technical reviewer know what to do next?
+- grounded: Does the response cite specific factors or make unsupported claims?
+- safe_deferral: On borderline cases, does the system appropriately hedge or escalate?
+
+Return ONLY a JSON object:
+{
+  "outcome_aligned": true/false,
+  "calibration_ok": true/false,
+  "actionable": true/false,
+  "grounded": true/false,
+  "safe_deferral": true/false,
+  "reasoning": "one sentence explanation"
+}
+"""
 
 
 def load_eval_set() -> list[dict]:
     return json.loads(EVAL_SET_PATH.read_text())
 
 
-# ── Scoring ───────────────────────────────────────────────────────────────────
+def _call_judge_llm(recommendation: str, ground_truth: dict) -> dict:
+    """Call the LLM judge and return parsed scoring dict."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
+    client = anthropic.Anthropic(api_key=api_key)
+
+    user_content = json.dumps({
+        "recommendation": recommendation,
+        "ground_truth": ground_truth,
+    }, indent=2)
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=512,
+        system=_JUDGE_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    raw = response.content[0].text
+
+    # Parse JSON, tolerating markdown fences
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if match:
+        raw = match.group(1)
+    else:
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        if start != -1 and end > start:
+            raw = raw[start:end]
+    return json.loads(raw)
+
 
 def score_recommendation(recommendation: str, ground_truth: dict) -> dict:
     """
-    Score a single agent recommendation against the ground truth.
+    Score a single agent recommendation against ground truth using an LLM judge.
 
-    TODO — implement this function.
-
-    Args:
-        recommendation: The agent's free-text recommendation string.
-        ground_truth:   Dict with keys:
-                            is_loss_making (bool)   — the actual outcome
-                            loss_ratio     (float)  — the actual loss ratio
-
-    Returns:
-        A dict with at minimum:
-            correct   (bool)   — did the recommendation align with the actual outcome?
-            reasoning (str)    — brief explanation of why you scored it this way
-
-    Approach:
-        Use an LLM as judge. Prompt it to extract the agent's implied prediction and
-        confidence from the recommendation text, then compare to ground truth. This
-        is the right tool for scoring free text — a regex heuristic will miss nuance
-        and give you false confidence in your eval. Explain your prompting approach
-        in APPROACH.md.
-
-    Scoring dimensions to consider (you do not have to use all of these, but address
-    at least three and explain why you chose them):
-
-        - Outcome alignment  — does the recommendation point in the right direction?
-        - Calibration        — is the expressed certainty proportionate to the actual
-                               loss ratio? A confident wrong answer on a borderline case
-                               (loss_ratio near 1.0) is worse than an uncertain one.
-        - Actionability      — would a non-technical reviewer know what to do next?
-        - Evidence quality   — does the response cite relevant features or similar cases,
-                               or does it make claims without grounding?
-        - Safe deferral      — does the system appropriately hedge or escalate when
-                               evidence is weak or conflicting?
-
-    Records in the eval set are annotated with a "case_type" field for borderline
-    and clear cases — use these to analyse whether your agent's calibration holds
-    up under different conditions, not just its average accuracy.
+    correct = True only when outcome_aligned AND calibration_ok are both True.
+    This ensures a confident wrong answer on a borderline case is still marked incorrect.
     """
-    raise NotImplementedError(
-        "Implement score_recommendation() in evals/eval.py. "
-        "See the docstring above for guidance on what to measure."
-    )
+    scores = _call_judge_llm(recommendation, ground_truth)
+    scores["correct"] = bool(scores.get("outcome_aligned") and scores.get("calibration_ok"))
+    return scores
 
-
-# ── Runner ────────────────────────────────────────────────────────────────────
 
 def run_eval() -> None:
-    """
-    Run the agent against every record in the eval set and print a summary.
-
-    TODO — wire this up to your agent once Part 2 / Part 3 is implemented.
-
-    The agent call below is a placeholder. Replace it with a real call to your
-    /assess endpoint or directly to your agent function.
-    """
-    import httpx  # pip install httpx, or use requests
+    from app.agent import run_agent
 
     eval_set = load_eval_set()
     results = []
@@ -95,33 +104,24 @@ def run_eval() -> None:
         record = {k: v for k, v in item.items() if k != "ground_truth"}
         ground_truth = item["ground_truth"]
 
-        print(f"[{i + 1}/{len(eval_set)}] Assessing {record['record_id']}...", end=" ")
+        print(f"[{i + 1}/{len(eval_set)}] Assessing {record['record_id']}...", end=" ", flush=True)
 
         start = time.time()
-
-        # TODO: replace with your actual agent call
-        # Option A — call the /assess endpoint directly:
-        # response = httpx.post("http://localhost:8000/assess", json={"record": record})
-        # recommendation = response.json()["recommendation"]
-
-        # Option B — call your agent function directly (faster, no HTTP overhead):
-        # from app.main import run_agent
-        # recommendation = run_agent(record)
-
-        # Placeholder:
-        recommendation = "[agent not yet wired up]"
-
+        agent_result = run_agent(record)
+        recommendation = agent_result["recommendation"]
         elapsed = time.time() - start
+
         score = score_recommendation(recommendation, ground_truth)
-        results.append(
-            {
-                "record_id": record["record_id"],
-                "ground_truth": ground_truth,
-                "recommendation": recommendation,
-                "score": score,
-                "latency_s": round(elapsed, 2),
-            }
-        )
+        results.append({
+            "record_id": record["record_id"],
+            "ground_truth": ground_truth,
+            "recommendation": recommendation,
+            "confidence_level": agent_result.get("confidence_level"),
+            "risk_assessment": agent_result.get("risk_assessment"),
+            "second_opinion_recommended": agent_result.get("second_opinion_recommended"),
+            "score": score,
+            "latency_s": round(elapsed, 2),
+        })
         status = "✓" if score.get("correct") else "✗"
         print(f"{status} ({elapsed:.1f}s)")
 
@@ -130,23 +130,30 @@ def run_eval() -> None:
     n_correct = sum(1 for r in results if r["score"].get("correct"))
     avg_latency = sum(r["latency_s"] for r in results) / n
 
-    print(f"\n{'─' * 40}")
-    print(f"Results: {n_correct}/{n} correct ({n_correct / n:.0%})")
-    print(f"Average latency: {avg_latency:.1f}s")
-
     loss_making = [r for r in results if r["ground_truth"]["is_loss_making"]]
     not_loss_making = [r for r in results if not r["ground_truth"]["is_loss_making"]]
+    borderline = [r for r in results if r["ground_truth"].get("case_type") == "borderline"]
+    clear = [r for r in results if r["ground_truth"].get("case_type") == "clear"]
+
+    print(f"\n{'─' * 45}")
+    print(f"Overall:          {n_correct}/{n} correct ({n_correct / n:.0%})")
+    print(f"Average latency:  {avg_latency:.1f}s")
     if loss_making:
         tp = sum(1 for r in loss_making if r["score"].get("correct"))
-        print(f"Loss-making records correct: {tp}/{len(loss_making)}")
+        print(f"Loss-making:      {tp}/{len(loss_making)} correct")
     if not_loss_making:
         tn = sum(1 for r in not_loss_making if r["score"].get("correct"))
-        print(f"Non-loss-making records correct: {tn}/{len(not_loss_making)}")
+        print(f"Non-loss-making:  {tn}/{len(not_loss_making)} correct")
+    if borderline:
+        bp = sum(1 for r in borderline if r["score"].get("correct"))
+        print(f"Borderline cases: {bp}/{len(borderline)} correct")
+    if clear:
+        cp = sum(1 for r in clear if r["score"].get("correct"))
+        print(f"Clear cases:      {cp}/{len(clear)} correct")
 
-    # Write full results to file for inspection
     out = Path(__file__).parent / "eval_results.json"
     out.write_text(json.dumps(results, indent=2, default=str))
-    print(f"\nFull results written to {out}")
+    print(f"\nFull results → {out}")
 
 
 if __name__ == "__main__":
