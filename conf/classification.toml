@@ -1,0 +1,20 @@
+[modeling]
+target_column = "is_loss_making"
+feature_columns = [
+  "risk_type",
+  "territory",
+  "industry",
+  "limit",
+  "premium",
+  "broker",
+  "prior_claims",
+  "years_trading",
+]
+categorical_features = ["risk_type", "territory", "industry", "broker"]
+numeric_features = ["limit", "premium", "prior_claims", "years_trading"]
+eda_numeric_features = ["limit", "premium", "prior_claims", "years_trading", "loss_ratio"]
+candidate_models = ["lr", "dt", "rf", "et", "lightgbm"]
+session_id = 42
+train_size = 0.8
+fold = 5
+sort_metric = "AUC"
