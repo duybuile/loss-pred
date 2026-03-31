@@ -63,38 +63,51 @@ class LLMAdapter:
         """
         user_content = json.dumps(evidence, indent=2)
 
-        if self.provider == "anthropic":
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_content}],
-            )
-            raw_text = response.content[0].text
-        else:  # openai
-            response = self._client.chat.completions.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-            )
-            raw_text = response.choices[0].message.content
+        try:
+            if self.provider == "anthropic":
+                response = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_content}],
+                )
+                if not response.content:
+                    raise ValueError("Anthropic API returned empty content list.")
+                raw_text = response.content[0].text
+            else:  # openai
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                )
+                raw_text = response.choices[0].message.content
+        except (ValueError, AttributeError):
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"LLM API call failed: {exc}") from exc
 
         return _parse_json_response(raw_text)
 
 
 def _parse_json_response(text: str) -> dict:
     """Extract and parse a JSON object from LLM output, tolerating markdown fences."""
-    # Strip markdown code fences if present
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
-        text = match.group(1)
+        candidate = match.group(1)
     else:
-        # Find the outermost JSON object
         start = text.find("{")
         end = text.rfind("}") + 1
-        if start != -1 and end > start:
-            text = text[start:end]
-    return json.loads(text)
+        if start == -1 or end <= start:
+            raise ValueError(
+                f"LLM response contained no JSON object. Raw response: {text!r}"
+            )
+        candidate = text[start:end]
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"LLM response could not be parsed as JSON. Raw response: {text!r}"
+        ) from exc
