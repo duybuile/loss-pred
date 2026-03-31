@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Assessment Agent Architecture</title>
+    <style>
+      :root {
+        --ink: #162033;
+        --muted: #5c677d;
+        --line: #bbc5d6;
+        --blue: #eaf3ff;
+        --sand: #f7f4ec;
+        --warm: #fff0d8;
+        --alert: #fce5e1;
+        --accent: #1c5d99;
+        --success: #2d6a4f;
+        --danger: #b54434;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        padding: 28px;
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, #ffe4c4 0, transparent 18%),
+          radial-gradient(circle at bottom right, #e6f4ea 0, transparent 18%),
+          linear-gradient(135deg, #fff9f0 0%, #f4f8fe 55%, #eef6f1 100%);
+      }
+
+      .page {
+        max-width: 1560px;
+        margin: 0 auto;
+        padding: 28px 28px 32px;
+        border: 1px solid rgba(187, 197, 214, 0.95);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: 0 24px 80px rgba(22, 32, 51, 0.08);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Avenir Next", "Futura", "Trebuchet MS", sans-serif;
+        font-size: 40px;
+      }
+
+      .intro {
+        margin: 10px 0 26px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .hint {
+        margin-bottom: 18px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: 210px 40px 250px 50px 360px 50px 248px 40px 214px;
+        align-items: center;
+        gap: 0;
+      }
+
+      .panel {
+        min-height: 170px;
+        padding: 18px 18px 16px;
+        border: 2px solid var(--line);
+        border-radius: 24px;
+        background: var(--sand);
+      }
+
+      .panel.blue { background: var(--blue); }
+      .panel.warm { background: var(--warm); }
+      .panel.white { background: #fff; }
+      .panel.alert { background: var(--alert); }
+
+      .panel h2 {
+        margin: 0 0 6px;
+        font-family: "Avenir Next", "Futura", "Trebuchet MS", sans-serif;
+        font-size: 26px;
+      }
+
+      .sub {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+        font-size: 15px;
+        line-height: 1.4;
+      }
+
+      .arrow {
+        position: relative;
+        height: 4px;
+        background: var(--accent);
+        border-radius: 999px;
+      }
+
+      .arrow::after {
+        content: "";
+        position: absolute;
+        right: -1px;
+        top: -6px;
+        border-top: 8px solid transparent;
+        border-bottom: 8px solid transparent;
+        border-left: 14px solid var(--accent);
+      }
+
+      .policy-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-top: 28px;
+        margin-left: 660px;
+      }
+
+      .card {
+        padding: 18px 18px 16px;
+        border: 2px solid var(--line);
+        border-radius: 22px;
+      }
+
+      .card.blue { background: #d8eafb; }
+      .card.peach { background: #fdeee5; }
+      .card h3 {
+        margin: 0 0 10px;
+        font-family: "Avenir Next", "Futura", "Trebuchet MS", sans-serif;
+        font-size: 24px;
+      }
+
+      .escalation {
+        margin-top: 22px;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .escalation .panel {
+        width: 320px;
+        min-height: 0;
+      }
+
+      .output {
+        margin-top: 24px;
+        padding: 18px 22px;
+        border: 2px solid var(--line);
+        border-radius: 26px;
+        background: #fff;
+      }
+
+      .output strong {
+        display: block;
+        margin-bottom: 8px;
+        font-family: "Avenir Next", "Futura", "Trebuchet MS", sans-serif;
+        font-size: 24px;
+      }
+
+      .footer {
+        margin-top: 20px;
+        color: var(--muted);
+        font-family: "IBM Plex Mono", "Consolas", monospace;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <h1>Assessment Agent Architecture</h1>
+      <p class="intro">Model-first reviewer support with fallback-only retrieval and deterministic escalation.</p>
+      <p class="hint">Open this file directly in a browser and take a screenshot when the layout looks right.</p>
+
+      <section class="flow">
+        <article class="panel">
+          <h2>Input Record</h2>
+          <p class="sub">Incoming risk submission</p>
+          <ul>
+            <li>risk_type, territory, industry</li>
+            <li>limit, premium, prior_claims</li>
+            <li>years_trading, broker</li>
+          </ul>
+        </article>
+        <div class="arrow" aria-hidden="true"></div>
+        <article class="panel blue">
+          <h2>Predict Loss</h2>
+          <p class="sub">Primary evidence tool</p>
+          <ul>
+            <li>probability_of_loss</li>
+            <li>top_features</li>
+            <li>input_quality_flags</li>
+            <li>model_warnings</li>
+          </ul>
+        </article>
+        <div class="arrow" aria-hidden="true"></div>
+        <article class="panel white">
+          <h2>Hybrid Controller</h2>
+          <p class="sub">Deterministic policy engine</p>
+          <ul>
+            <li>Compute confidence from |pl - 0.5|</li>
+            <li>Downgrade for missing or invalid inputs</li>
+            <li>Trigger retrieval only for low confidence</li>
+            <li>Escalate if evidence conflicts</li>
+          </ul>
+        </article>
+        <div class="arrow" aria-hidden="true"></div>
+        <article class="panel warm">
+          <h2>Fallback Retrieval</h2>
+          <p class="sub">Historical analogs on demand</p>
+          <ul>
+            <li>Run once for weak model evidence</li>
+            <li>Use small n_results</li>
+            <li>Summarize support or tension</li>
+            <li>Never search for certainty</li>
+          </ul>
+        </article>
+        <div class="arrow" aria-hidden="true"></div>
+        <article class="panel">
+          <h2>Reviewer Response</h2>
+          <p class="sub">Actionable assessment output</p>
+          <ul>
+            <li>recommendation</li>
+            <li>risk_assessment</li>
+            <li>confidence_level</li>
+            <li>review_guidance</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="policy-row">
+        <article class="card blue">
+          <h3>Confidence Policy</h3>
+          <ul>
+            <li>High: margin &gt;= 0.30</li>
+            <li>Medium: 0.15 to 0.29</li>
+            <li>Low: margin &lt; 0.15</li>
+            <li>Missing fields or warnings force low</li>
+          </ul>
+        </article>
+        <article class="card peach">
+          <h3>Guardrails</h3>
+          <ul>
+            <li>Bound retrieval to one round</li>
+            <li>No repeated tool loops</li>
+            <li>Escalate when model and retrieval disagree</li>
+            <li>Use LLM only for coherent summaries</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="escalation">
+        <article class="panel alert">
+          <h2>Human Review</h2>
+          <p class="sub">Triggered on weak or contradictory evidence</p>
+          <ul>
+            <li>low confidence after retrieval</li>
+            <li>model and retrieval conflict</li>
+            <li>critical model warning or invalid input</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="output">
+        <strong>Output Contract</strong>
+        recommendation, risk_assessment, confidence_level, key_factors, similar_records_summary,
+        second_opinion_recommended, review_guidance, tools_used, warnings
+      </section>
+
+      <div class="footer">pl = probability_of_loss | confidence is computed in the controller, not in predict_loss</div>
+    </main>
+  </body>
+</html>
