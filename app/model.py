@@ -18,6 +18,8 @@ _PIPELINE_PATH = Path(__file__).parent / "artifacts" / "feature_pipeline.pkl"
 
 _REQUIRED_FIELDS = {"risk_type", "territory", "limit", "premium"}
 _OPTIONAL_FIELDS = {"broker", "industry", "prior_claims", "years_trading"}
+_NUMERIC_FIELDS = {"limit", "premium", "prior_claims", "years_trading"}
+_ALL_KNOWN_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 
 
 def load_model() -> dict:
@@ -100,25 +102,22 @@ def predict(pipeline: Any, artifact: dict, record: dict) -> dict:
     # can handle them rather than crashing on missing column references.
     # Use float np.nan (not None/pd.NA) so comparisons like (col < 0) yield
     # False rather than pd.NA, which would cause .astype(int) to fail.
-    _numeric_fields = {"limit", "premium", "prior_claims", "years_trading"}
-    _all_fields = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
     padded_record = {}
-    for field in _all_fields:
+    for field in _ALL_KNOWN_FIELDS:
         val = record.get(field)
-        if val is None and field in _numeric_fields:
+        if val is None and field in _NUMERIC_FIELDS:
             padded_record[field] = np.nan
         else:
             padded_record[field] = val
-    padded_record.update({k: v for k, v in record.items() if k not in _all_fields})
+    padded_record.update({k: v for k, v in record.items() if k not in _ALL_KNOWN_FIELDS})
 
     df = pd.DataFrame([padded_record])
     X = pipeline.transform(df)
     feature_columns: list[str] = artifact["feature_columns"]
     # Keep only columns the model was trained on; fill any extras with 0
     missing_cols = [c for c in feature_columns if c not in X.columns]
-    if missing_cols:
-        model_warnings.append(f"feature_columns_missing_after_transform:{missing_cols}")
     for col in missing_cols:
+        model_warnings.append(f"feature_missing_after_transform:{col}")
         X[col] = 0
     X = X[feature_columns]
 
