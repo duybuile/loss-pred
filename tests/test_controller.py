@@ -58,6 +58,22 @@ class TestConfidenceLevel:
         pred = make_prediction(0.85, warnings=["feature_missing_after_transform:some_col"])
         assert ctrl.compute_confidence(pred) == "low"
 
+    def test_high_confidence_boundary_at_0_80(self):
+        """prob=0.80 → margin=0.30 exactly → should return 'high' (boundary is inclusive)."""
+        ctrl = make_controller()
+        assert ctrl.compute_confidence(make_prediction(0.80)) == "high"
+
+    def test_medium_confidence_boundary_at_0_65(self):
+        """prob=0.65 → margin=0.15 exactly → should return 'medium' (boundary is inclusive)."""
+        ctrl = make_controller()
+        assert ctrl.compute_confidence(make_prediction(0.65)) == "medium"
+
+    def test_high_to_medium_downgrade_on_optional_missing(self):
+        """prob=0.85 (high) with optional_field_missing flag should downgrade to 'medium'."""
+        ctrl = make_controller()
+        pred = make_prediction(0.85, flags=["optional_field_missing:broker"])
+        assert ctrl.compute_confidence(pred) == "medium"
+
 
 class TestRetrievalGating:
     def test_no_retrieval_for_high_confidence(self):
@@ -108,6 +124,18 @@ class TestConflictDetection:
         ]
         assert ctrl.detect_conflict(is_loss_making_prediction=True, retrieval_results=retrieval) is False
 
+    def test_tie_break_on_even_split(self):
+        """On a 50/50 tie (1 loss-making, 1 not), sum(outcomes) > len/2 is False.
+        This tie-break treats the majority as 'not loss-making'. When model predicts
+        True (loss) but tie resolves to False, a conflict is detected."""
+        outcomes = {"REC_001": True, "REC_002": False}
+        ctrl = make_controller(record_outcomes=outcomes)
+        retrieval = [
+            {"record_id": "REC_001", "document": "...", "distance": 0.1},
+            {"record_id": "REC_002", "document": "...", "distance": 0.2},
+        ]
+        assert ctrl.detect_conflict(is_loss_making_prediction=True, retrieval_results=retrieval) is True
+
 
 class TestRiskAssessment:
     def test_likely_loss(self):
@@ -129,7 +157,6 @@ class TestEscalation:
         assert ctrl.should_escalate(
             confidence_level="low",
             conflict_detected=False,
-            retrieval_ran=False,
         ) is True
 
     def test_no_escalation_on_high_confidence(self):
@@ -137,7 +164,6 @@ class TestEscalation:
         assert ctrl.should_escalate(
             confidence_level="high",
             conflict_detected=False,
-            retrieval_ran=False,
         ) is False
 
     def test_escalation_on_conflict(self):
@@ -145,7 +171,6 @@ class TestEscalation:
         assert ctrl.should_escalate(
             confidence_level="medium",
             conflict_detected=True,
-            retrieval_ran=True,
         ) is True
 
     def test_escalation_on_low_confidence_after_retrieval(self):
@@ -153,5 +178,4 @@ class TestEscalation:
         assert ctrl.should_escalate(
             confidence_level="low",
             conflict_detected=False,
-            retrieval_ran=True,
         ) is True

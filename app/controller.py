@@ -83,6 +83,10 @@ class ControllerPolicy:
 
         Conflict detection is skipped when all retrieved records have distance
         above the threshold (poor retrieval quality).
+
+        Tie-break rule: On even splits (e.g., 1 loss-making, 1 non-loss),
+        the majority is treated as "not loss-making" (sum(outcomes) > len/2 is False
+        for ties). This asymmetric tie-break favors "no conflict" when outcomes are split.
         """
         good_results = [
             r for r in retrieval_results if r["distance"] <= self.distance_threshold
@@ -107,7 +111,6 @@ class ControllerPolicy:
         self,
         confidence_level: str,
         conflict_detected: bool,
-        retrieval_ran: bool,
     ) -> bool:
         """Return True when the system should recommend human review."""
         if conflict_detected:
