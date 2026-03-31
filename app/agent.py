@@ -7,7 +7,6 @@ The LLM is called once for prose synthesis when evidence is coherent.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +31,8 @@ def _load_config() -> dict:
 _cfg = _load_config()
 
 MAX_ITERATIONS: int = _cfg["agent"]["max_iterations"]
+# MAX_ITERATIONS is read from config. The current orchestrator is single-pass;
+# this constant is retained for future extension to an agentic tool-call loop.
 
 # ── Module-level singletons ───────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ def run_agent(record: dict) -> dict[str, Any]:
             "probability_of_loss": 0.5,
             "top_features": [],
             "input_quality_flags": [],
-            "model_warnings": [prediction.get("error", "")],
+            "model_warnings": [err for err in [prediction.get("error", "")] if err],
         }
 
     # Step 2: Confidence
@@ -169,6 +170,11 @@ def run_agent(record: dict) -> dict[str, Any]:
         synthesis = _build_deterministic_response(prediction, confidence_level, warnings)
     else:
         # LLM synthesis pass
+        if _adapter is None:
+            raise RuntimeError(
+                "LLM adapter is not configured. "
+                "Set the ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable."
+            )
         evidence = {
             "record": {k: v for k, v in record.items() if k != "record_id"},
             "prediction": {

@@ -27,11 +27,9 @@ SYNTHESIS_RESPONSE = {
 def test_run_agent_returns_required_keys(monkeypatch):
     from app import agent as agent_module
 
-    monkeypatch.setattr(
-        agent_module,
-        "_adapter",
-        _make_fake_adapter(SYNTHESIS_RESPONSE),
-    )
+    monkeypatch.setattr(agent_module, "_adapter", _make_fake_adapter(SYNTHESIS_RESPONSE))
+    monkeypatch.setattr(agent_module._controller, "compute_confidence", lambda pred: "high")
+    monkeypatch.setattr(agent_module._controller, "should_escalate", lambda **kw: False)
 
     result = agent_module.run_agent(VALID_RECORD)
 
@@ -67,6 +65,9 @@ def test_run_agent_tools_used_populated(monkeypatch):
     from app import agent as agent_module
 
     monkeypatch.setattr(agent_module, "_adapter", _make_fake_adapter(SYNTHESIS_RESPONSE))
+    monkeypatch.setattr(agent_module._controller, "compute_confidence", lambda pred: "high")
+    monkeypatch.setattr(agent_module._controller, "should_escalate", lambda **kw: False)
+
     result = agent_module.run_agent(VALID_RECORD)
 
     assert "predict_loss" in result["tools_used"]
