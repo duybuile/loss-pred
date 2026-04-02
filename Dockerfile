@@ -34,7 +34,8 @@ WORKDIR /app
 # Copy the pre-built venv and cached model weights from the builder stage
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
-COPY --from=builder /root/.cache/torch /root/.cache/torch
+# /root/.cache/torch is not copied — sentence_transformers stores model weights
+# in the huggingface cache; the torch cache is only written for GPU/CUDA builds.
 
 # Copy application source — order from least to most frequently changed
 COPY conf/ conf/

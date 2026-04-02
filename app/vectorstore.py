@@ -27,12 +27,22 @@ _CHROMA_DIR = _REPO_ROOT / ".chroma"
 _COLLECTION_NAME = "torch_records"
 
 # ── Embedding function ────────────────────────────────────────────────────────
+# Lazily initialised on first use — keeps the module importable without
+# triggering the sentence-transformers / torch DLL load at import time.
 # Uses the sentence-transformers model locally — no API key required.
 # Swap for chromadb.utils.embedding_functions.OpenAIEmbeddingFunction if preferred.
 
-_EMBEDDING_FN = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+_embedding_fn: embedding_functions.SentenceTransformerEmbeddingFunction | None = None
+
+
+def _get_embedding_fn() -> embedding_functions.SentenceTransformerEmbeddingFunction:
+    global _embedding_fn
+    if _embedding_fn is None:
+        _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
+        )
+    return _embedding_fn
+
 
 # ── Collection (initialised at startup) ──────────────────────────────────────
 
@@ -60,14 +70,14 @@ def _get_collection() -> chromadb.Collection:
     if _COLLECTION_NAME in existing:
         _collection = client.get_collection(
             name=_COLLECTION_NAME,
-            embedding_function=_EMBEDDING_FN,
+            embedding_function=_get_embedding_fn(),
         )
         return _collection
 
     # Build index from documents/
     collection = client.create_collection(
         name=_COLLECTION_NAME,
-        embedding_function=_EMBEDDING_FN,
+        embedding_function=_get_embedding_fn(),
         metadata={"hnsw:space": "cosine"},
     )
 

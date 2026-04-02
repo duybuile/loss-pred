@@ -17,7 +17,7 @@ test:           ## Run the test suite
 	uv run pytest tests/ --ignore=tests/test_assessment_agent_architecture_diagram.py -v
 
 eval:           ## Run the evaluation harness against eval_set.json
-	uv run python evals/eval.py
+	uv run python -m evals.eval
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 
