@@ -16,7 +16,7 @@ __pycache__/
 
 # Secrets — never bake into the image
 .env
-.env.*
+.env
 
 # ChromaDB index — rebuilt at runtime; persisted via docker-compose volume
 .chroma/

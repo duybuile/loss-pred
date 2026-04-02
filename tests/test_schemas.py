@@ -3,6 +3,54 @@ import pytest
 from pydantic import ValidationError
 
 
+def test_assess_request_accepts_partial_typed_record():
+    from app.schemas import AssessRequest
+
+    req = AssessRequest(
+        record={
+            "record_id": "NEW_0001",
+            "risk_type": "cyber",
+            "territory": "EU",
+            "limit": 3438000,
+            "premium": 26904,
+        }
+    )
+
+    assert req.record.record_id == "NEW_0001"
+    assert req.record.risk_type == "cyber"
+    assert req.record.industry is None
+
+
+def test_assess_request_rejects_invalid_field_type():
+    from app.schemas import AssessRequest
+
+    with pytest.raises(ValidationError):
+        AssessRequest(
+            record={
+                "risk_type": "cyber",
+                "territory": "EU",
+                "limit": "not-a-number",
+                "premium": 26904,
+            }
+        )
+
+
+def test_assess_request_preserves_extra_fields():
+    from app.schemas import AssessRequest
+
+    req = AssessRequest(
+        record={
+            "risk_type": "cyber",
+            "territory": "EU",
+            "limit": 3438000,
+            "premium": 26904,
+            "custom_field": "kept-for-downstream-compatibility",
+        }
+    )
+
+    assert req.record.model_dump()["custom_field"] == "kept-for-downstream-compatibility"
+
+
 def test_assess_response_valid():
     from app.schemas import AssessResponse
 

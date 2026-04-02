@@ -1,9 +1,8 @@
 """
 Vector store — ChromaDB-backed document retrieval, ready to use.
 
-The collection is initialised at app startup via the FastAPI lifespan hook in
-main.py (which calls init()). Subsequent calls to retrieve() use the cached
-in-process client — no re-loading on each request.
+The collection is initialised lazily on first retrieval. Subsequent calls to
+retrieve() use the cached in-process client — no re-loading on each request.
 
 Usage:
     from app.vectorstore import retrieve
@@ -27,23 +26,34 @@ _CHROMA_DIR = _REPO_ROOT / ".chroma"
 _COLLECTION_NAME = "torch_records"
 
 # ── Embedding function ────────────────────────────────────────────────────────
+# Lazily initialised on first use — keeps the module importable without
+# triggering the sentence-transformers / torch DLL load at import time.
 # Uses the sentence-transformers model locally — no API key required.
 # Swap for chromadb.utils.embedding_functions.OpenAIEmbeddingFunction if preferred.
 
-_EMBEDDING_FN = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+_embedding_fn: embedding_functions.SentenceTransformerEmbeddingFunction | None = None
 
-# ── Collection (initialised at startup) ──────────────────────────────────────
+
+def _get_embedding_fn() -> embedding_functions.SentenceTransformerEmbeddingFunction:
+    global _embedding_fn
+    if _embedding_fn is None:
+        _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
+        )
+    return _embedding_fn
+
+
+# ── Collection (initialised on first retrieval) ──────────────────────────────
 
 _collection: chromadb.Collection | None = None
 
 
 def init() -> None:
     """
-    Initialise the vector store. Called once at app startup via main.py lifespan.
-    Builds the ChromaDB index from data/documents/ if it doesn't exist yet,
-    or loads the existing persistent index if it does.
+    Initialise the vector store explicitly.
+
+    Builds the ChromaDB index from data/documents/ if it doesn't exist yet, or
+    loads the existing persistent index if it does.
     """
     _get_collection()
 
@@ -60,14 +70,14 @@ def _get_collection() -> chromadb.Collection:
     if _COLLECTION_NAME in existing:
         _collection = client.get_collection(
             name=_COLLECTION_NAME,
-            embedding_function=_EMBEDDING_FN,
+            embedding_function=_get_embedding_fn(),
         )
         return _collection
 
     # Build index from documents/
     collection = client.create_collection(
         name=_COLLECTION_NAME,
-        embedding_function=_EMBEDDING_FN,
+        embedding_function=_get_embedding_fn(),
         metadata={"hnsw:space": "cosine"},
     )
 

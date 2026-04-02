@@ -4,13 +4,25 @@ Request and response schemas for the assessment API.
 """
 from __future__ import annotations
 
-from typing import Any
+from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr
 
-from pydantic import BaseModel
+
+class AssessmentRecord(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    record_id: StrictStr | None = None
+    risk_type: StrictStr | None = None
+    territory: StrictStr | None = None
+    industry: StrictStr | None = None
+    broker: StrictStr | None = None
+    limit: StrictInt | StrictFloat | None = None
+    premium: StrictInt | StrictFloat | None = None
+    prior_claims: StrictInt | None = None
+    years_trading: StrictInt | None = None
 
 
 class AssessRequest(BaseModel):
-    record: dict[str, Any]
+    record: AssessmentRecord
 
 
 class AssessResponse(BaseModel):

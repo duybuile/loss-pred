@@ -12,7 +12,7 @@ venv
 
 # Environment / secrets
 .env
-.env.*
+.env
 
 # ChromaDB index (rebuilt automatically)
 .chroma/
@@ -24,6 +24,7 @@ venv
 .DS_Store
 
 .claude
+.codex
 
 # Data
 data

@@ -7,63 +7,49 @@ The LLM is called once for prose synthesis when evidence is coherent.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from app import cfg
 from app.controller import ControllerPolicy
 from app.llm import LLMAdapter
 from app.tools import run_predict_loss, run_retrieve_similar_records
 
+logger = logging.getLogger(__name__)
+
 # ── Config ────────────────────────────────────────────────────────────────────
-
-def _load_config() -> dict:
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib  # type: ignore[no-redef]
-
-    repo_root = Path(__file__).parent.parent
-    with open(repo_root / "conf" / "agent.toml", "rb") as f:
-        return tomllib.load(f)
-
-_cfg = _load_config()
-
-MAX_ITERATIONS: int = _cfg["agent"]["max_iterations"]
+MAX_ITERATIONS: int = cfg.get("agent.max_iterations")
 # MAX_ITERATIONS is read from config. The current orchestrator is single-pass;
 # this constant is retained for future extension to an agentic tool-call loop.
 
 # ── Module-level singletons ───────────────────────────────────────────────────
 
 def _load_record_outcomes() -> dict[str, bool]:
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib  # type: ignore[no-redef]
-
     repo_root = Path(__file__).parent.parent
-    with open(repo_root / "conf" / "general.toml", "rb") as f:
-        general_cfg = tomllib.load(f)
 
-    records_path = repo_root / general_cfg["data"]["records_path"]
+    records_path = repo_root / cfg.get("data.records_path")
+    logger.info(f"Loading records from {records_path}")
     df = pd.read_csv(records_path)
     return dict(zip(df["record_id"], df["is_loss_making"].astype(bool)))
 
 
 _controller = ControllerPolicy(
-    config=_cfg["controller"],
+    config=cfg.get("controller"),
     record_outcomes=_load_record_outcomes(),
 )
 
 def _make_adapter() -> LLMAdapter:
     try:
         return LLMAdapter(
-            provider=_cfg["llm"]["provider"],
-            model=_cfg["llm"]["model"],
-            max_tokens=_cfg["llm"]["max_tokens"],
+            provider=cfg.get("llm.provider"),
+            model=cfg.get("llm.model"),
+            max_tokens=cfg.get("llm.max_tokens"),
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"No LLMAdapter was initialised: {e}")
         return None  # type: ignore[return-value]
 
 _adapter: LLMAdapter | None = _make_adapter()
@@ -137,7 +123,7 @@ def run_agent(record: dict) -> dict[str, Any]:
         query = _build_retrieval_query(record)
         try:
             retrieval_results = run_retrieve_similar_records(
-                query, n_results=_cfg["controller"]["retrieval_n_results"]
+                query, n_results=cfg.get("controller.retrieval_n_results")
             )
             tools_used.append("retrieve_similar_records")
         except Exception as e:
