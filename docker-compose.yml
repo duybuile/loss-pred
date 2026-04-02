@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: torch-assessment-api:latest
-    container_name: torch-api
+    image: loss-pred-api:latest
+    container_name: loss-pred-api
     ports:
       - "8000:8000"
     env_file:

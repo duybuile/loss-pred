@@ -61,16 +61,16 @@ class ControllerPolicy:
         return base
 
     # ── Risk Assessment ───────────────────────────────────────────────────────
-
-    def compute_risk_assessment(self, is_loss_making: bool, confidence_level: str) -> str:
+    @staticmethod
+    def compute_risk_assessment(is_loss_making: bool, confidence_level: str) -> str:
         """Return a directional risk label. Low confidence always yields 'unclear'."""
         if confidence_level == "low":
             return "unclear"
         return "likely_loss" if is_loss_making else "unlikely_loss"
 
     # ── Retrieval Gating ──────────────────────────────────────────────────────
-
-    def should_retrieve(self, confidence_level: str, predict_failed: bool) -> bool:
+    @staticmethod
+    def should_retrieve(confidence_level: str, predict_failed: bool) -> bool:
         """Retrieval runs only when confidence is low or prediction failed."""
         return confidence_level == "low" or predict_failed
 
@@ -106,9 +106,8 @@ class ControllerPolicy:
         return majority_loss_making != is_loss_making_prediction
 
     # ── Escalation ────────────────────────────────────────────────────────────
-
+    @staticmethod
     def should_escalate(
-        self,
         confidence_level: str,
         conflict_detected: bool,
     ) -> bool:

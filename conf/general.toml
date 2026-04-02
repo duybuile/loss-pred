@@ -12,3 +12,11 @@ persist_directory = ".chroma"
 
 [controller]
 retrieval_distance_threshold = 0.5
+
+[logging]
+level = "DEBUG"
+
+[fastapi]
+host = "0.0.0.0"
+port = 8000
+

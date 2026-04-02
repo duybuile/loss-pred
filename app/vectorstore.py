@@ -1,9 +1,8 @@
 """
 Vector store — ChromaDB-backed document retrieval, ready to use.
 
-The collection is initialised at app startup via the FastAPI lifespan hook in
-main.py (which calls init()). Subsequent calls to retrieve() use the cached
-in-process client — no re-loading on each request.
+The collection is initialised lazily on first retrieval. Subsequent calls to
+retrieve() use the cached in-process client — no re-loading on each request.
 
 Usage:
     from app.vectorstore import retrieve
@@ -44,16 +43,17 @@ def _get_embedding_fn() -> embedding_functions.SentenceTransformerEmbeddingFunct
     return _embedding_fn
 
 
-# ── Collection (initialised at startup) ──────────────────────────────────────
+# ── Collection (initialised on first retrieval) ──────────────────────────────
 
 _collection: chromadb.Collection | None = None
 
 
 def init() -> None:
     """
-    Initialise the vector store. Called once at app startup via main.py lifespan.
-    Builds the ChromaDB index from data/documents/ if it doesn't exist yet,
-    or loads the existing persistent index if it does.
+    Initialise the vector store explicitly.
+
+    Builds the ChromaDB index from data/documents/ if it doesn't exist yet, or
+    loads the existing persistent index if it does.
     """
     _get_collection()
 
