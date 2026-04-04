@@ -15,7 +15,7 @@ services:
       # Model and pipeline artifacts — read-only, bind-mounted from host
       - ./app/artifacts:/app/app/artifacts:ro
       # ChromaDB vector store — persisted across restarts in a named volume
-      - chroma_data:/app/.chroma
+      - ./.chroma:/app/.chroma
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",

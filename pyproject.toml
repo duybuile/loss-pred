@@ -2,7 +2,7 @@
 name = "torch-techtest"
 version = "0.1.0"
 description = "Torch take-home exercise — assessment agent skeleton"
-requires-python = ">=3.12,<4"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -24,6 +24,8 @@ dependencies = [
     "onnxruntime>=1.24.4",
     "langchain>=1.2.15",
     "langchain-openai>=1.1.12",
+    "langchain-chroma>=1.1.0",
+    "codetiming>=1.4.0",
 ]
 
 [dependency-groups]

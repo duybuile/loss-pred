@@ -1,9 +1,9 @@
 """
-Vector store — ChromaDB-backed document retrieval, ready to use.
+Vector store facade for historical-record retrieval.
 
-The collection is initialised during FastAPI startup via app.main. Subsequent
-calls to retrieve() use the cached in-process client — no re-loading on each
-request.
+The selected backend is initialised during FastAPI startup via app.main.
+Subsequent calls to retrieve() use the cached backend-specific client or
+vector store instance — no re-loading on each request.
 """
 
 from __future__ import annotations
@@ -11,18 +11,22 @@ from __future__ import annotations
 import json
 import logging
 import math
+import shutil
 import time
 from pathlib import Path
 
 import chromadb
 from dotenv import load_dotenv
+from langchain_core.documents import Document
 
 from app import cfg
 from app.embedding import (
     SafeHuggingFaceEmbeddingFunction,
     embedding_functions,
     get_embedding_fn,
+    get_langchain_embeddings,
 )
+from app.vectorstore_mgt import VectorStoreMgtChroma
 
 load_dotenv()
 
@@ -34,6 +38,7 @@ _CHROMA_DIR = _REPO_ROOT / cfg.get("vectorstore.persist_directory")
 
 _embedding_fn: object | None = None
 _collection: chromadb.Collection | None = None
+_backend_adapter: "_VectorStoreBackend | None" = None
 _SafeHuggingFaceEmbeddingFunction = SafeHuggingFaceEmbeddingFunction
 
 
@@ -44,7 +49,16 @@ def _get_collection_name() -> str:
 
 
 def _get_collection_marker_path() -> Path:
-    return _CHROMA_DIR / f"{_get_collection_name()}.ready.json"
+    backend = cfg.get("vectorstore.backend").lower()
+    return _CHROMA_DIR / f"{_get_collection_name()}_{backend}.ready.json"
+
+
+def _get_backend_name() -> str:
+    return cfg.get("vectorstore.backend").lower()
+
+
+def _get_langchain_vector_store_dir() -> Path:
+    return _CHROMA_DIR / "langchain_chroma" / _get_collection_name()
 
 
 def _write_collection_marker(document_count: int) -> None:
@@ -67,7 +81,154 @@ def _get_embedding_fn() -> object:
 
 
 def init() -> None:
-    _get_collection()
+    _get_backend_adapter().init()
+
+
+class _VectorStoreBackend:
+    def init(self) -> None:
+        raise NotImplementedError
+
+    def retrieve(self, query: str, n_results: int) -> list[dict]:
+        raise NotImplementedError
+
+
+class _NativeChromaBackend(_VectorStoreBackend):
+    def init(self) -> None:
+        _get_collection()
+
+    def retrieve(self, query: str, n_results: int) -> list[dict]:
+        collection = _get_collection()
+        results = collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            include=["documents", "metadatas", "distances"],
+        )
+
+        output = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            output.append(
+                {
+                    "record_id": meta["record_id"],
+                    "document": doc,
+                    "distance": round(dist, 4),
+                }
+            )
+        return output
+
+
+class _LangChainChromaBackend(_VectorStoreBackend):
+    def __init__(self) -> None:
+        self._manager: VectorStoreMgtChroma | None = None
+        self._vector_store = None
+
+    def init(self) -> None:
+        if self._vector_store is not None:
+            logger.debug("Using cached LangChain Chroma vector store")
+            return
+
+        marker = _read_collection_marker()
+        if marker is not None:
+            vector_store = self._get_manager().get_latest_vector_store()
+            if vector_store is not None:
+                self._vector_store = vector_store
+                logger.info(
+                    "Loaded LangChain Chroma collection %s with %d documents",
+                    _get_collection_name(),
+                    marker.get("document_count", -1),
+                )
+                return
+
+        vector_store_dir = _get_langchain_vector_store_dir()
+        if vector_store_dir.exists():
+            logger.warning(
+                "Existing LangChain Chroma store %s has no ready marker. Deleting and rebuilding.",
+                _get_collection_name(),
+            )
+            shutil.rmtree(vector_store_dir, ignore_errors=True)
+
+        documents = self._load_langchain_documents()
+        logger.info(
+            "Building LangChain Chroma collection %s with %d documents",
+            _get_collection_name(),
+            len(documents),
+        )
+        manager = self._get_manager()
+        manager.batch_update(documents, deduplicate=False)
+        self._vector_store = manager.get_latest_vector_store()
+        if self._vector_store is None:
+            raise RuntimeError(
+                f"Failed to initialise LangChain Chroma collection {_get_collection_name()}."
+            )
+
+        _write_collection_marker(len(documents))
+        logger.info(
+            "Loaded LangChain Chroma collection %s with %d documents",
+            _get_collection_name(),
+            len(documents),
+        )
+
+    def retrieve(self, query: str, n_results: int) -> list[dict]:
+        self.init()
+        assert self._vector_store is not None
+        results = self._vector_store.similarity_search_with_score(query, k=n_results)
+        output = []
+        for doc, score in results:
+            record_id = doc.metadata.get("record_id") or doc.metadata.get("doc_id", "unknown")
+            output.append(
+                {
+                    "record_id": record_id,
+                    "document": doc.page_content,
+                    "distance": round(float(score), 4),
+                }
+            )
+        return output
+
+    def _get_manager(self) -> VectorStoreMgtChroma:
+        if self._manager is None:
+            self._manager = VectorStoreMgtChroma(
+                vector_store_dir=str(_get_langchain_vector_store_dir()),
+                embedding_function=_get_embedding_provider_name(),
+                embedding_model_name=cfg.get(
+                    f"embedding.model.{cfg.get('vectorstore.embedding_provider').lower()}"
+                ),
+                collection_name=_get_collection_name(),
+                embedding=get_langchain_embeddings(),
+            )
+        return self._manager
+
+    @staticmethod
+    def _load_langchain_documents() -> list[Document]:
+        ids, documents, _ = _load_documents()
+        return [
+            Document(
+                page_content=document,
+                metadata={"record_id": record_id, "doc_id": record_id},
+            )
+            for record_id, document in zip(ids, documents)
+        ]
+
+
+def _get_embedding_provider_name() -> str:
+    return cfg.get("vectorstore.embedding_provider").lower()
+
+
+def _get_backend_adapter() -> _VectorStoreBackend:
+    global _backend_adapter
+    if _backend_adapter is not None:
+        return _backend_adapter
+
+    backend = _get_backend_name()
+    if backend == "native_chroma":
+        _backend_adapter = _NativeChromaBackend()
+    elif backend == "langchain_chroma":
+        _backend_adapter = _LangChainChromaBackend()
+    else:
+        raise ValueError(f"Unsupported vectorstore backend: {backend}")
+    return _backend_adapter
 
 
 def _load_documents() -> tuple[list[str], list[str], list[dict[str, str]]]:
@@ -237,24 +398,4 @@ def _get_collection() -> chromadb.Collection:
 
 
 def retrieve(query: str, n_results: int = 3) -> list[dict]:
-    collection = _get_collection()
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    output = []
-    for doc, meta, dist in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
-    ):
-        output.append(
-            {
-                "record_id": meta["record_id"],
-                "document": doc,
-                "distance": round(dist, 4),
-            }
-        )
-    return output
+    return _get_backend_adapter().retrieve(query, n_results)

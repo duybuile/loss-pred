@@ -7,6 +7,7 @@ records_path = "data/records.csv"
 documents_path = "data/documents"
 
 [vectorstore]
+backend = "langchain_chroma"          # native_chroma, langchain_chroma
 collection_name = "torch_records"
 persist_directory = ".chroma"
 embedding_provider = "huggingface"     # openai, huggingface, onnx

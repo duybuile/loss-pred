@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import openai
 import requests
 from typing_extensions import Literal
+from anthropic import Anthropic
 
 from . import OPEN_AI_PRICING, OPEN_AI_TOOL_PRICING
 
@@ -73,10 +74,10 @@ class LLMClient:
         self.base = base
         self.model = model
         self.temperature = temperature
-        if self.api == "openai":
+        self.api_key = api_key
+        if self.api in {"openai", "anthropic"}:
             if api_key == "":
-                raise ValueError("OpenAI API key is required")
-            self.api_key = api_key
+                raise ValueError(f"{self.api.capitalize()} API key is required")
         self.pricing = pricing or {}
         if self.pricing == {} and self.api == "openai":
             self.pricing = OPEN_AI_PRICING
@@ -101,6 +102,30 @@ class LLMClient:
             return
         if self.api_key:
             openai.api_key = self.api_key
+
+    @staticmethod
+    def _normalise_chat_input(prompt: str, input_items: Any) -> tuple[Optional[str], list[dict[str, Any]]]:
+        if input_items:
+            if isinstance(input_items, str):
+                return None, [{"role": "user", "content": input_items}]
+            if not isinstance(input_items, list):
+                raise ValueError("input must be a string or a list of message dicts.")
+            system_prompt = None
+            messages: list[dict[str, Any]] = []
+            for item in input_items:
+                role = item.get("role")
+                content = item.get("content")
+                if role == "system":
+                    if system_prompt is None:
+                        system_prompt = content
+                    else:
+                        system_prompt = f"{system_prompt}\n\n{content}"
+                    continue
+                messages.append({"role": role, "content": content})
+            return system_prompt, messages
+        if prompt == "":
+            raise ValueError("Prompt is empty and input is not there")
+        return None, [{"role": "user", "content": prompt}]
 
     def call(self, prompt: Optional[str] = "", log_usage: bool = False, **kwargs_additional) -> str | None:
         """
@@ -173,6 +198,30 @@ class LLMClient:
             usage = self._extract_usage(getattr(stream_obj, "response", None) or final_response)
             self._record_usage(usage, log_usage)
             return "".join(text_chunks) or None
+        elif self.api == "anthropic":
+            system_prompt, messages = self._normalise_chat_input(
+                prompt or "",
+                kwargs_additional.get("input"),
+            )
+            anthropic_client = Anthropic(api_key=self.api_key)
+            kwargs = {
+                "model": self.model,
+                "max_tokens": kwargs_additional.get("max_tokens", 1024),
+                "messages": messages,
+            }
+            if system_prompt:
+                kwargs["system"] = system_prompt
+            response = anthropic_client.messages.create(**kwargs)
+            if not response.content:
+                raise ValueError("Anthropic API returned empty content list.")
+            raw_text = "".join(
+                block.text
+                for block in response.content
+                if getattr(block, "text", None) is not None
+            )
+            usage = self._extract_usage(response)
+            self._record_usage(usage, log_usage)
+            return raw_text or None
         elif self.api == "ollama":
             response = requests.post(
                 f"{self.base}/api/chat",

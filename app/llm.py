@@ -13,6 +13,8 @@ import anthropic
 import openai
 from dotenv import load_dotenv
 
+from utils.llms.llm_client import LLMClient
+
 load_dotenv()
 
 
@@ -47,7 +49,15 @@ class LLMAdapter:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
-        self._client = get_client(provider)
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY")
+            if provider == "anthropic"
+            else os.environ.get("OPENAI_API_KEY")
+        )
+        if not api_key:
+            missing = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
+            raise EnvironmentError(f"{missing} is not set.")
+        self.llm_client = LLMClient(api=provider, model=model, api_key=api_key)
 
     def synthesize(self, evidence: dict, system_prompt: str) -> dict:
         """
@@ -64,26 +74,13 @@ class LLMAdapter:
         user_content = json.dumps(evidence, indent=2)
 
         try:
-            if self.provider == "anthropic":
-                response = self._client.messages.create(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_content}],
-                )
-                if not response.content:
-                    raise ValueError("Anthropic API returned empty content list.")
-                raw_text = response.content[0].text
-            else:  # openai
-                response = self._client.chat.completions.create(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
-                    ],
-                )
-                raw_text = response.choices[0].message.content
+            raw_text = self.llm_client.call(
+                log_usage=True,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+            )
         except (ValueError, AttributeError):
             raise
         except Exception as exc:
