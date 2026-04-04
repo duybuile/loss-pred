@@ -11,3 +11,7 @@ high_confidence_threshold = 0.30
 medium_confidence_threshold = 0.15
 retrieval_n_results = 3
 retrieval_distance_threshold = 0.5
+
+[prompt]
+orchestrator = "prompt/orchestrator.txt"
+orchestrator_version = "v1"

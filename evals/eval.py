@@ -14,9 +14,15 @@ import time
 from pathlib import Path
 
 import anthropic
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+JUDGE_PROVIDER = "anthropic"  # "anthropic" | "openai"
+JUDGE_MODEL = "claude-haiku-4-5-20251001" if JUDGE_PROVIDER == "anthropic" else "gpt-5.4-mini"
+JUDGE_MAX_TOKENS = 512
 
 EVAL_SET_PATH = Path(__file__).parent / "eval_set.json"
 
@@ -53,23 +59,41 @@ def load_eval_set() -> list[dict]:
 
 def _call_judge_llm(recommendation: str, ground_truth: dict) -> dict:
     """Call the LLM judge and return parsed scoring dict."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
-    client = anthropic.Anthropic(api_key=api_key)
-
     user_content = json.dumps({
         "recommendation": recommendation,
         "ground_truth": ground_truth,
     }, indent=2)
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        system=_JUDGE_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    raw = response.content[0].text
+    if JUDGE_PROVIDER == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=JUDGE_MODEL,
+            max_tokens=JUDGE_MAX_TOKENS,
+            system=_JUDGE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        raw = response.content[0].text
+    elif JUDGE_PROVIDER == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise EnvironmentError("OPENAI_API_KEY is not set.")
+        client = openai.OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=JUDGE_MODEL,
+            max_tokens=JUDGE_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        raw = response.choices[0].message.content
+    else:
+        raise ValueError(
+            f"Unknown judge provider: {JUDGE_PROVIDER!r}. Must be 'anthropic' or 'openai'."
+        )
 
     # Parse JSON, tolerating markdown fences
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
