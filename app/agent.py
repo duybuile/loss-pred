@@ -56,26 +56,22 @@ _adapter: LLMAdapter | None = _make_adapter()
 
 # ── System prompt for synthesis ───────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are an assessment assistant helping a non-technical insurance reviewer.
+def _load_system_prompt(repo_root: Path | None = None) -> str:
+    if repo_root is None:
+        repo_root = Path(__file__).parent.parent
 
-You will receive structured evidence about a record: a model prediction, confidence level,
-risk assessment, top predictive features, and optionally retrieved similar records.
+    prompt_path = Path(cfg.get("prompt.orchestrator"))
+    version = cfg.get("prompt.orchestrator_version")
+    versioned_prompt_path = prompt_path.with_name(
+        f"{prompt_path.stem}_{version}{prompt_path.suffix}"
+    )
 
-Your job is to synthesize this evidence into a concise, plain-English recommendation.
+    full_path = repo_root / versioned_prompt_path
+    logger.info(f"Loading system prompt from {full_path}")
+    return full_path.read_text(encoding="utf-8")
 
-Return ONLY a JSON object with these exact keys:
-- "recommendation": 2-4 sentence plain-English recommendation for the reviewer
-- "summary": 2-3 sentences explaining the key evidence
-- "key_factors": list of 3-5 plain-English descriptions of the main risk drivers
-- "similar_records_summary": brief narrative about retrieved historical records, or null if none
-- "review_guidance": one sentence telling the reviewer what to do next
 
-Rules:
-- Use plain English — no jargon, no technical terms like "probability" or "coefficients"
-- If confidence is low or a second opinion is recommended, say so explicitly
-- Do not invent evidence not present in the structured input
-- Do not expose your reasoning process — only the final recommendation
-"""
+SYSTEM_PROMPT = _load_system_prompt()
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 

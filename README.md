@@ -1,4 +1,4 @@
-# Torch Assessment Agent
+# Loss Prediction Agent
 
 A hybrid AI agent that helps insurance reviewers assess incoming records quickly and confidently. Given a new record, the agent predicts loss likelihood, retrieves similar historical cases, and synthesises a plain-English recommendation with explicit confidence and escalation signals.
 
@@ -15,7 +15,7 @@ POST /assess
   → AssessResponse
 ```
 
-See the [Notion architecture page](https://www.notion.so/334549ed3cfa8181866cc0ca380ec50a) for visual diagrams of the data flow, confidence computation, and evaluation harness.
+See the [Notion architecture page](https://congruous-caper-9ac.notion.site/Loss-Prediction-Agent-Architecture-334549ed3cfa8181866cc0ca380ec50a?source=copy_link) for visual diagrams of the data flow, confidence computation, and evaluation harness.
 
 ---
 
