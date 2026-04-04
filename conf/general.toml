@@ -9,6 +9,18 @@ documents_path = "data/documents"
 [vectorstore]
 collection_name = "torch_records"
 persist_directory = ".chroma"
+embedding_provider = "huggingface"     # openai, huggingface, onnx
+batch_size = 10
+embedding_api_base = ""
+openai_api_key_env_var = "OPENAI_API_KEY"
+huggingface_api_key_env_var = "HUGGINGFACE_TOKEN"
+huggingface_timeout_seconds = 60.0
+
+[embedding.model]
+huggingface = "sentence-transformers/all-MiniLM-L6-v2"  # safer default for HF inference API than larger models
+ollama = "nomic-embed-text:latest"
+onnx = "all-MiniLM-L6-v2"
+openai = "text-embedding-3-small"
 
 [controller]
 retrieval_distance_threshold = 0.5
@@ -19,4 +31,3 @@ level = "DEBUG"
 [fastapi]
 host = "0.0.0.0"
 port = 8000
-
