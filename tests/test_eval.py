@@ -2,6 +2,108 @@
 import pytest
 
 
+def test_call_judge_llm_uses_anthropic_provider(monkeypatch):
+    from evals import eval as eval_module
+
+    monkeypatch.setattr(eval_module, "JUDGE_PROVIDER", "anthropic")
+    monkeypatch.setattr(eval_module, "JUDGE_MODEL", "claude-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    captured = {}
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return type(
+                "Response",
+                (),
+                {"content": [type("Chunk", (), {"text": '{"outcome_aligned": true}'})()]},
+            )()
+
+    class FakeAnthropicClient:
+        def __init__(self, api_key):
+            captured["api_key"] = api_key
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(eval_module.anthropic, "Anthropic", FakeAnthropicClient)
+
+    result = eval_module._call_judge_llm(
+        recommendation="Decline this record.",
+        ground_truth={"is_loss_making": True, "loss_ratio": 1.3, "case_type": "clear"},
+    )
+
+    assert result["outcome_aligned"] is True
+    assert captured["api_key"] == "test-key"
+    assert captured["model"] == "claude-test"
+    assert captured["max_tokens"] == eval_module.JUDGE_MAX_TOKENS
+    assert captured["system"] == eval_module._JUDGE_SYSTEM_PROMPT
+    assert captured["messages"][0]["role"] == "user"
+
+
+def test_call_judge_llm_uses_openai_provider(monkeypatch):
+    from evals import eval as eval_module
+
+    monkeypatch.setattr(eval_module, "JUDGE_PROVIDER", "openai")
+    monkeypatch.setattr(eval_module, "JUDGE_MODEL", "gpt-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return type(
+                "Response",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "Message",
+                                    (),
+                                    {"content": '{"outcome_aligned": false}'},
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    class FakeOpenAIClient:
+        def __init__(self, api_key):
+            captured["api_key"] = api_key
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(eval_module.openai, "OpenAI", FakeOpenAIClient)
+
+    result = eval_module._call_judge_llm(
+        recommendation="Accept this record.",
+        ground_truth={"is_loss_making": False, "loss_ratio": 0.7, "case_type": "clear"},
+    )
+
+    assert result["outcome_aligned"] is False
+    assert captured["api_key"] == "test-key"
+    assert captured["model"] == "gpt-test"
+    assert captured["max_tokens"] == eval_module.JUDGE_MAX_TOKENS
+    assert captured["messages"][0]["role"] == "system"
+    assert captured["messages"][1]["role"] == "user"
+
+
+def test_call_judge_llm_rejects_unknown_provider(monkeypatch):
+    from evals import eval as eval_module
+
+    monkeypatch.setattr(eval_module, "JUDGE_PROVIDER", "unsupported")
+
+    with pytest.raises(ValueError, match="Unknown judge provider"):
+        eval_module._call_judge_llm(
+            recommendation="Review this record.",
+            ground_truth={"is_loss_making": True, "loss_ratio": 1.0, "case_type": "borderline"},
+        )
+
+
 def test_score_recommendation_correct_outcome(monkeypatch):
     """Judge returns correct=True when recommendation aligns with ground truth."""
     from evals import eval as eval_module

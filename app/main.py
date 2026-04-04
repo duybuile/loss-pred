@@ -8,22 +8,34 @@ Endpoints:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, HTTPException
 
 from app import cfg
 from app.agent import run_agent
 from app.schemas import AssessRequest, AssessResponse
+from app.vectorstore import init as init_vectorstore
 from utils.config.log_handler import setup_logger
 
 logger = setup_logger(
     level=cfg.get("logging.level")
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialise core dependencies before serving requests."""
+    init_vectorstore()
+    yield
+
+
 app = FastAPI(
     title="Loss Prediction API",
     description="Prototype assessment agent for incoming insurance records.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 

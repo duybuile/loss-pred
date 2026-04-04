@@ -87,6 +87,26 @@ def test_retrieve_similar_records_not_in_tools_used_when_high_confidence(monkeyp
     assert "retrieve_similar_records" not in result["tools_used"]
 
 
+def test_load_system_prompt_uses_configured_base_name_and_version(tmp_path, monkeypatch):
+    from app import agent as agent_module
+
+    prompt_dir = tmp_path / "prompt"
+    prompt_dir.mkdir()
+    prompt_file = prompt_dir / "orchestrator_v99.txt"
+    prompt_file.write_text("prompt from file")
+
+    monkeypatch.setattr(
+        agent_module.cfg,
+        "get",
+        lambda key: {
+            "prompt.orchestrator": "prompt/orchestrator.txt",
+            "prompt.orchestrator_version": "v99",
+        }[key],
+    )
+
+    assert agent_module._load_system_prompt(repo_root=tmp_path) == "prompt from file"
+
+
 def _make_fake_adapter(synthesis_response: dict):
     class FakeAdapter:
         def synthesize(self, *args, **kwargs):
