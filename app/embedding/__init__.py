@@ -7,6 +7,7 @@ import time
 import numpy as np
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
+from langchain_core.embeddings import Embeddings
 
 from app import cfg
 
@@ -94,10 +95,37 @@ def get_embedding_fn() -> object:
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 
+class LangChainEmbeddingAdapter(Embeddings):
+    """Adapt the configured embedding callable to the LangChain embeddings API."""
+
+    def __init__(self, embedding_fn: object):
+        self._embedding_fn = embedding_fn
+
+    @staticmethod
+    def _to_float_list(embedding: object) -> list[float]:
+        if hasattr(embedding, "tolist"):
+            return [float(value) for value in embedding.tolist()]
+        return [float(value) for value in embedding]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        embeddings = self._embedding_fn(texts)
+        return [self._to_float_list(embedding) for embedding in embeddings]
+
+    def embed_query(self, text: str) -> list[float]:
+        embedding = self._embedding_fn([text])[0]
+        return self._to_float_list(embedding)
+
+
+def get_langchain_embeddings() -> Embeddings:
+    return LangChainEmbeddingAdapter(get_embedding_fn())
+
+
 __all__ = [
     "SafeHuggingFaceEmbeddingFunction",
     "embedding_functions",
     "get_embedding_fn",
+    "get_langchain_embeddings",
     "get_model_name",
     "get_required_env_value",
+    "LangChainEmbeddingAdapter",
 ]

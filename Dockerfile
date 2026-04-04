@@ -41,6 +41,8 @@ COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 COPY conf/ conf/
 COPY evals/ evals/
 COPY app/ app/
+COPY utils/ utils/
+COPY prompt/ prompt/
 
 # data/ and app/artifacts/ are intentionally excluded from the image.
 # Mount them at runtime via docker-compose volumes (see docker-compose.yml).
