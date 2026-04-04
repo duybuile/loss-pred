@@ -94,6 +94,7 @@ def _populate_collection(collection: chromadb.Collection) -> int:
     ids, documents, metadatas = _load_documents()
     batch_size = cfg.get("vectorstore.batch_size")
     total_batches = math.ceil(len(ids) / batch_size)
+    embedding_fn = _get_embedding_fn()
 
     logger.info(
         "Populating ChromaDB collection %s with %d documents across %d batches",
@@ -112,17 +113,54 @@ def _populate_collection(collection: chromadb.Collection) -> int:
             total_batches,
             len(ids[start:end]),
         )
+        batch_documents = documents[start:end]
+        batch_ids = ids[start:end]
+        batch_metadatas = metadatas[start:end]
+        logger.info(
+            "Computing embeddings for collection %s batch %d/%d",
+            _get_collection_name(),
+            batch_index,
+            total_batches,
+        )
+        embeddings = embedding_fn(batch_documents)
+        serializable_embeddings = [
+            embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+            for embedding in embeddings
+        ]
+        embedding_dim = len(embeddings[0]) if embeddings else 0
+        logger.info(
+            "Computed embeddings for collection %s batch %d/%d: %d vectors x %d dims",
+            _get_collection_name(),
+            batch_index,
+            total_batches,
+            len(embeddings),
+            embedding_dim,
+        )
+        if serializable_embeddings:
+            logger.debug(
+                "Prepared embeddings for collection %s batch %d/%d: type=%s dim=%d",
+                _get_collection_name(),
+                batch_index,
+                total_batches,
+                type(serializable_embeddings[0]).__name__,
+                len(serializable_embeddings[0]),
+            )
         logger.info(
             "Calling Chroma add for collection %s batch %d/%d",
             _get_collection_name(),
             batch_index,
             total_batches,
         )
-        collection.add(
-            ids=ids[start:end],
-            documents=documents[start:end],
-            metadatas=metadatas[start:end],
-        )
+        try:
+            collection.add(
+                ids=batch_ids,
+                documents=batch_documents,
+                metadatas=batch_metadatas,
+                embeddings=serializable_embeddings,
+            )
+        except Exception as e:
+            logger.error("Failed to add batch %d/%d to ChromaDB collection %s: %s", batch_index, total_batches, _get_collection_name(), e)
+            raise
         logger.info(
             "Finished ChromaDB collection %s batch %d/%d in %.2fs",
             _get_collection_name(),
