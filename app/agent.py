@@ -46,7 +46,6 @@ def _make_adapter() -> LLMAdapter:
         return LLMAdapter(
             provider=cfg.get("llm.provider"),
             model=cfg.get("llm.model"),
-            max_tokens=cfg.get("llm.max_tokens"),
         )
     except Exception as e:
         logger.error(f"No LLMAdapter was initialised: {e}")

@@ -9,31 +9,30 @@ import json
 import os
 import re
 
-import anthropic
-import openai
 from dotenv import load_dotenv
 
 from utils.llms.llm_client import LLMClient
 
 load_dotenv()
 
+_PROVIDER_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
 
-def get_client(provider: str):
-    """Return a configured client for the given provider."""
-    if provider == "anthropic":
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError(
-                "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
-            )
-        return anthropic.Anthropic(api_key=api_key)
-    elif provider == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise EnvironmentError("OPENAI_API_KEY is not set.")
-        return openai.OpenAI(api_key=api_key)
-    else:
+
+def _get_api_key(provider: str) -> str:
+    env_var = _PROVIDER_ENV_VARS.get(provider)
+    if env_var is None:
         raise ValueError(f"Unknown provider: {provider!r}. Must be 'anthropic' or 'openai'.")
+    api_key = os.environ.get(env_var)
+    if api_key:
+        return api_key
+    if provider == "anthropic":
+        raise EnvironmentError(
+            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
+        )
+    raise EnvironmentError("OPENAI_API_KEY is not set.")
 
 
 class LLMAdapter:
@@ -45,19 +44,10 @@ class LLMAdapter:
     returns structured JSON.
     """
 
-    def __init__(self, provider: str, model: str, max_tokens: int):
+    def __init__(self, provider: str, model: str):
         self.provider = provider
         self.model = model
-        self.max_tokens = max_tokens
-        api_key = (
-            os.environ.get("ANTHROPIC_API_KEY")
-            if provider == "anthropic"
-            else os.environ.get("OPENAI_API_KEY")
-        )
-        if not api_key:
-            missing = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
-            raise EnvironmentError(f"{missing} is not set.")
-        self.llm_client = LLMClient(api=provider, model=model, api_key=api_key)
+        self.llm_client = LLMClient(api=provider, model=model, api_key=_get_api_key(provider))
 
     def synthesize(self, evidence: dict, system_prompt: str) -> dict:
         """

@@ -26,6 +26,7 @@ dependencies = [
     "langchain-openai>=1.1.12",
     "langchain-chroma>=1.1.0",
     "codetiming>=1.4.0",
+    "streamlit>=1.44.0",
 ]
 
 [dependency-groups]

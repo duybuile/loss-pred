@@ -45,29 +45,25 @@ def test_llm_client_call_anthropic(monkeypatch):
     assert captured["messages"] == [{"role": "user", "content": '{"foo":"bar"}'}]
 
 
-def test_get_client_anthropic(monkeypatch):
-    import anthropic
-    from app.llm import get_client
+def test_get_api_key_anthropic(monkeypatch):
+    from app.llm import _get_api_key
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    client = get_client("anthropic")
-    assert isinstance(client, anthropic.Anthropic)
+    assert _get_api_key("anthropic") == "test-key"
 
 
-def test_get_client_openai(monkeypatch):
-    import openai
-    from app.llm import get_client
+def test_get_api_key_openai(monkeypatch):
+    from app.llm import _get_api_key
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    client = get_client("openai")
-    assert isinstance(client, openai.OpenAI)
+    assert _get_api_key("openai") == "test-key"
 
 
-def test_get_client_unknown_raises():
-    from app.llm import get_client
+def test_get_api_key_unknown_raises():
+    from app.llm import _get_api_key
 
     with pytest.raises(ValueError, match="Unknown provider"):
-        get_client("gemini")
+        _get_api_key("gemini")
 
 
 def test_llm_adapter_synthesize_anthropic(monkeypatch):
@@ -99,7 +95,7 @@ def test_llm_adapter_synthesize_anthropic(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr("app.llm.LLMClient", FakeLLMClient)
 
-    adapter = LLMAdapter(provider="anthropic", model="claude-sonnet-4-6", max_tokens=2048)
+    adapter = LLMAdapter(provider="anthropic", model="claude-sonnet-4-6")
     result = adapter.synthesize(evidence={"foo": "bar"}, system_prompt="You are helpful.")
 
     assert result["recommendation"] == "Decline this record."
@@ -109,8 +105,50 @@ def test_llm_adapter_synthesize_anthropic(monkeypatch):
         "model": "claude-sonnet-4-6",
         "api_key": "test-key",
     }
-    assert captured["call"]["max_tokens"] == 2048
     assert captured["call"]["input"] == [
         {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": json.dumps({"foo": "bar"}, indent=2)},
+    ]
+
+
+def test_llm_adapter_synthesize_openai(monkeypatch):
+    from app.llm import LLMAdapter
+
+    fake_json = json.dumps({
+        "recommendation": "Refer.",
+        "summary": "Needs review.",
+        "key_factors": ["limit"],
+        "similar_records_summary": None,
+        "review_guidance": "Check manually.",
+    })
+
+    captured = {}
+
+    class FakeLLMClient:
+        def __init__(self, api, model, api_key):
+            captured["init"] = {
+                "api": api,
+                "model": model,
+                "api_key": api_key,
+            }
+
+        def call(self, **kwargs):
+            captured["call"] = kwargs
+            return fake_json
+
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setattr("app.llm.LLMClient", FakeLLMClient)
+
+    adapter = LLMAdapter(provider="openai", model="gpt-5")
+    result = adapter.synthesize(evidence={"foo": "bar"}, system_prompt="Be concise.")
+
+    assert result["recommendation"] == "Refer."
+    assert captured["init"] == {
+        "api": "openai",
+        "model": "gpt-5",
+        "api_key": "openai-key",
+    }
+    assert captured["call"]["input"] == [
+        {"role": "system", "content": "Be concise."},
         {"role": "user", "content": json.dumps({"foo": "bar"}, indent=2)},
     ]

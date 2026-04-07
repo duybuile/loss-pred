@@ -27,6 +27,7 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="/app" \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app

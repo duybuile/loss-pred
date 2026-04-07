@@ -1,5 +1,6 @@
 .PHONY: install dev run test eval \
         docker-build docker-up docker-down docker-logs docker-restart \
+        docker-frontend-logs docker-frontend-restart \
         assess health
 
 # ── Local development ─────────────────────────────────────────────────────────
@@ -30,11 +31,17 @@ docker-up:      ## Build (if needed) and start the container in the background
 docker-down:    ## Stop and remove the container (keeps volumes)
 	docker compose down
 
-docker-restart: ## Restart the API container
-	docker compose restart api
+docker-restart: ## Restart both API and frontend containers
+	docker compose restart api frontend
 
-docker-logs:    ## Tail the API container logs
-	docker compose logs -f api
+docker-logs:    ## Tail API and frontend container logs
+	docker compose logs -f api frontend
+
+docker-frontend-restart: ## Restart the frontend container
+	docker compose restart frontend
+
+docker-frontend-logs: ## Tail the frontend container logs
+	docker compose logs -f frontend
 
 # ── API shortcuts ─────────────────────────────────────────────────────────────
 
