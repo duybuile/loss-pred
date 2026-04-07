@@ -1,4 +1,4 @@
-.PHONY: install dev run test eval \
+.PHONY: install dev run test eval docker-eval \
         docker-build docker-up docker-down docker-logs docker-restart \
         docker-frontend-logs docker-frontend-restart \
         assess health
@@ -42,6 +42,9 @@ docker-frontend-restart: ## Restart the frontend container
 
 docker-frontend-logs: ## Tail the frontend container logs
 	docker compose logs -f frontend
+
+docker-eval:    ## Run the evaluation harness inside the API container
+	docker compose exec api python -m evals.eval
 
 # ── API shortcuts ─────────────────────────────────────────────────────────────
 
