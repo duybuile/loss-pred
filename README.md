@@ -173,9 +173,10 @@ The suite covers feature engineering, model prediction, controller policy, LLM a
 ```bash
 make eval
 # or: uv run python evals/eval.py
+# on Windows, prefer: make docker-eval
 ```
 
-Runs the agent against `evals/eval_set.json` (20 records with known outcomes) and scores each recommendation across five dimensions using an LLM judge. Prints a summary and writes full results to `evals/eval_results.json`.
+Runs the agent against `evals/eval_set.json` (20 records with known outcomes) and scores each recommendation across five dimensions using an LLM judge. Prints a summary and writes full results to `evals/eval_results.json`. On Windows, prefer `make docker-eval` so the eval uses the Linux container environment for retrieval/vector store dependencies.
 
 ---
 

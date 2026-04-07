@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Parameters ────────────────────────────────────────────────────────────────
-JUDGE_PROVIDER = "anthropic"  # "anthropic" | "openai"
+JUDGE_PROVIDER = "openai"  # "anthropic" | "openai"
 JUDGE_MODEL = "claude-haiku-4-5-20251001" if JUDGE_PROVIDER == "anthropic" else "gpt-5.4-mini"
 JUDGE_MAX_TOKENS = 512
 
@@ -83,7 +83,6 @@ def _call_judge_llm(recommendation: str, ground_truth: dict) -> dict:
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model=JUDGE_MODEL,
-            max_tokens=JUDGE_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
