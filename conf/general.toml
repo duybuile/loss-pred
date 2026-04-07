@@ -32,3 +32,8 @@ level = "DEBUG"
 [fastapi]
 host = "0.0.0.0"
 port = 8000
+
+[streamlit]
+host = "0.0.0.0"
+port = 8501
+api_base_url = "http://localhost:8000"
